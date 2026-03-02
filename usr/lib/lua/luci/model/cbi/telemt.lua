@@ -1,6 +1,6 @@
 -- ==============================================================================
 -- Telemt CBI Model (Configuration Binding Interface)
--- Version: 3.1.4 (Epoch 1) - GOLDEN BUGFIX (Ucode-Safe & OW24-Native)
+-- Version: 3.1.4 (Epoch 1) - GOLDEN STABLE (Tooltips Restored)
 -- ==============================================================================
 
 local sys = require "luci.sys"
@@ -68,7 +68,7 @@ if http.formvalue("get_fw_status") == "1" then
     local status_msg, tip_msg = "<span style='color:red; font-weight:bold'>CLOSED</span>", "(Port not found in rules)"
     if is_physically_open then status_msg = "<span style='color:green; font-weight:bold'>OPEN (OK)</span>"; tip_msg = (afw == "0") and "(Auto-FW off, but port is open)" or ""
     elseif is_procd_open and is_running then status_msg = "<span style='color:green; font-weight:bold'>OPEN (OK)</span>"; tip_msg = "(Visible via ubus API)" end
-    if not is_running then return json_reply("<span style='color:#d9534f; font-weight:bold'>SERVICE STOPPED</span>") end
+    if not is_running then return json_reply("<span style='color:#d9534f; font-weight:bold'>SERVICE STOPPED</span> <span style='color:#888'>|</span> " .. status_msg) end
     return json_reply(status_msg .. (tip_msg ~= "" and " <span style='color:#888; font-size:0.85em; margin-left:5px;'>" .. tip_msg .. "</span>" or ""))
 end
 
@@ -227,24 +227,24 @@ myip.datatype = "string"; myip.default = saved_ip; function myip.validate(self, 
 
 local p = s:taboption("general", Value, "port", "Proxy Port" .. tip("The port on which the MTProxy server will listen for connections.")); p.datatype = "port"; p.rmempty = false
 
-local afw = s:taboption("general", Flag, "auto_fw", "Auto-open Port (Magic)" .. tip("Uses procd firewall API to open port in RAM dynamically. Rule will not appear in Network -> Firewall menu. Closes automatically if proxy stops."))
+local afw = s:taboption("general", Flag, "auto_fw", "Auto-open Port (Magic)" .. tip("Uses procd API to open port in RAM. Rule will not appear in Firewall menu. Closes automatically if proxy stops."))
 afw.default = "0"; afw.description = "<div style='margin-top:5px; padding:8px; background:rgba(128,128,128,0.1); border-left:3px solid #00a000; font-size:0.9em;'><b>Current Status:</b> <span id='fw_status_span' style='color:#888; font-style:italic;'>Checking...</span></div>"
 
 local ll = s:taboption("general", ListValue, "log_level", "Log Level" .. tip("Verbosity of telemt daemon log output.")); ll:value("debug", "Debug"); ll:value("verbose", "Verbose"); ll:value("normal", "Normal (default)"); ll:value("silent", "Silent"); ll.default = "normal"
 
 -- === TAB: UPSTREAMS (CASCADES) ===
 local up_anchor = s:taboption("upstreams", DummyValue, "_up_anchor", ""); up_anchor.rawhtml = true; up_anchor.default = '<div id="upstreams_tab_anchor" style="display:none"></div>'
-local up_master = s:taboption("upstreams", Flag, "enable_upstreams", "Enable All Cascades", "Master switch for Upstream Proxies. Disabling this ignores the list below."); up_master.default = "1"
+local up_master = s:taboption("upstreams", Flag, "enable_upstreams", "Enable All Cascades" .. tip("Master switch for Upstream Proxies. Disabling this ignores the list below.")); up_master.default = "1"
 
 s_up = m:section(TypedSection, "upstream", "Upstream Proxies (Cascades)", "Chain your outgoing Telegram traffic through other servers (e.g. to bypass ISP DPI).<br><b>Note:</b> If no upstreams are enabled, the proxy will fallback to <b>Direct connection</b>.")
-s_up.template = "cbi/tblsection"; s_up.addremove = true; s_up.anonymous = true
+s_up.addremove = true; s_up.anonymous = true
 local uen = s_up:option(Flag, "enabled", "Active"); uen.default = "1"; uen.rmempty = false
 local ut = s_up:option(ListValue, "type", "Protocol")
 ut:value("direct", "Direct"); ut:value("socks4", "SOCKS4"); ut:value("socks5", "SOCKS5"); ut.default = "socks5"
 local ua = s_up:option(Value, "address", "Address" .. tip("Format: IP:PORT or HOST:PORT")); ua.datatype = "hostport"
-local uu = s_up:option(Value, "username", "Username"); function uu.validate(self, v) if v and v:match("[^A-Za-z0-9_.-]") then return nil, "Invalid chars" end return v end
-local up = s_up:option(Value, "password", "Password"); up.password = true
-local uw = s_up:option(Value, "weight", "Weight" .. tip("Priority. Default: 10.")); uw.datatype = "uinteger"; uw.default = "10"; uw.placeholder = "10"
+local uu = s_up:option(Value, "username", "Username" .. tip("Optional. English letters, numbers and symbols _ . - only.")); function uu.validate(self, v) if v and v ~= "" and not v:match("^[A-Za-z0-9_.-]+$") then return nil, "Invalid characters" end return v end
+local up = s_up:option(Value, "password", "Password" .. tip("Optional. Password for SOCKS. English characters only.")); up.password = true; function up.validate(self, v) if v and v ~= "" and not v:match("^[A-Za-z0-9_.-]+$") then return nil, "Invalid characters" end return v end
+local uw = s_up:option(Value, "weight", "Weight" .. tip("Routing priority weight. Default: 10.")); uw.datatype = "uinteger"; uw.default = "10"; uw.placeholder = "10"
 
 -- === TAB: ADVANCED ===
 local hnet = s:taboption("advanced", DummyValue, "_head_net"); hnet.rawhtml = true; hnet.default = "<h3>Network Listeners</h3>"
@@ -263,7 +263,7 @@ s:taboption("advanced", Flag, "auto_degradation", "Auto-Degradation" .. tip("Ena
 s:taboption("advanced", Value, "degradation_min_dc", "Degradation Min DC" .. tip("Minimum unavailable ME DC groups before degrading. Default: 2.")):depends("auto_degradation", "1")
 
 local hadv = s:taboption("advanced", DummyValue, "_head_adv"); hadv.rawhtml = true
-hadv.default = [[<details id="telemt_adv_opts_details" style="margin-top:20px; padding:10px; background:rgba(128,128,128,0.05); border:1px solid rgba(128,128,128,0.3); border-radius:6px; cursor:pointer;"><summary style="font-weight:bold; font-size:1.05em; outline:none; cursor:pointer;">Additional Options (Click to expand)</summary><p style="font-size:0.85em; opacity:0.8; margin-top:5px; margin-bottom:0;">Extra proxy settings and overrides.</p></details><script>setTimeout(function(){var d = document.getElementById('telemt_adv_opts_details');if(!d) return;var tM = ['desync_all_full', 'mask_proxy_protocol', 'announce_ip', 'ad_tag', 'fake_cert_len', 'tls_full_cert_ttl_secs', 'ignore_time_skew'];tM.forEach(function(n){var el = document.querySelector('.cbi-value[data-name="' + n + '"]') || document.getElementById('cbi-telemt-general-' + n);if(el) { el.style.paddingLeft = '15px'; d.appendChild(el); }});}, 300);</script>]]
+hadv.default = [[<details id="telemt_adv_opts_details" style="margin-top:20px; padding:10px; background:rgba(128,128,128,0.05); border:1px solid rgba(128,128,128,0.3); border-radius:6px; cursor:pointer;"><summary style="font-weight:bold; font-size:1.05em; outline:none; cursor:pointer;">Additional Options (Click to expand)</summary><p style="font-size:0.85em; opacity:0.8; margin-top:5px; margin-bottom:0;">Extra proxy settings and overrides.</p></details><script>setTimeout(function(){var d = document.getElementById('telemt_adv_opts_details');if(!d) return;var tM = ['desync_all_full', 'mask_proxy_protocol', 'announce_ip', 'ad_tag', 'fake_cert_len', 'tls_full_cert_ttl_secs', 'ignore_time_skew'];tM.forEach(function(n){var el = document.querySelector('.cbi-value[data-name="' + n + '"]') || document.getElementById('cbi-telemt-general-' + n) || document.querySelector('[id$="-' + n + '"]');if(el) { el.style.paddingLeft = '15px'; d.appendChild(el); }});}, 300);</script>]]
 s:taboption("advanced", Flag, "desync_all_full", "Full Crypto-Desync Logs" .. tip("Emit full forensic logs for every event. Default: disabled (false).")).default = "0"
 local mpp = s:taboption("advanced", ListValue, "mask_proxy_protocol", "Mask Proxy Protocol" .. tip("Send PROXY protocol header to mask_host (if behind HAProxy/Nginx).")); mpp:value("0", "0 (Off)"); mpp:value("1", "1 (v1 - Text)"); mpp:value("2", "2 (v2 - Binary)"); mpp.default = "0"
 local ip = s:taboption("advanced", Value, "announce_ip", "Announce Address" .. tip("Optional. Public IP or Domain for tg:// links. Overrides 'External IP' if set.")); ip.datatype = "string"
@@ -273,7 +273,7 @@ s:taboption("advanced", Value, "tls_full_cert_ttl_secs", "TLS Full Cert TTL (sec
 s:taboption("advanced", Flag, "ignore_time_skew", "Ignore Time Skew" .. tip("Disable strict time checks. Useful if clients have desynced clocks.")).default = "0"
 
 local htm = s:taboption("advanced", DummyValue, "_head_tm"); htm.rawhtml = true
-htm.default = [[<details id="telemt_timeouts_details" style="margin-top:20px; padding:10px; background:rgba(128,128,128,0.05); border:1px solid rgba(128,128,128,0.3); border-radius:6px; cursor:pointer;"><summary style="font-weight:bold; font-size:1.05em; outline:none; cursor:pointer;">Timeouts & Replay Protection (Click to expand)</summary><p style="font-size:0.85em; opacity:0.8; margin-top:5px; margin-bottom:0;">Adjust connection timeouts and replay window. Leave defaults if unsure.</p></details><script>setTimeout(function(){var details = document.getElementById('telemt_timeouts_details');if(!details) return;var toMove = ['tm_handshake', 'tm_connect', 'tm_keepalive', 'tm_ack', 'replay_window_secs'];toMove.forEach(function(name){var el = document.querySelector('.cbi-value[data-name="' + name + '"]') || document.getElementById('cbi-telemt-general-' + name);if(el) { el.style.paddingLeft = '15px'; details.appendChild(el); }});}, 300);</script>]]
+htm.default = [[<details id="telemt_timeouts_details" style="margin-top:20px; padding:10px; background:rgba(128,128,128,0.05); border:1px solid rgba(128,128,128,0.3); border-radius:6px; cursor:pointer;"><summary style="font-weight:bold; font-size:1.05em; outline:none; cursor:pointer;">Timeouts & Replay Protection (Click to expand)</summary><p style="font-size:0.85em; opacity:0.8; margin-top:5px; margin-bottom:0;">Adjust connection timeouts and replay window. Leave defaults if unsure.</p></details><script>setTimeout(function(){var details = document.getElementById('telemt_timeouts_details');if(!details) return;var toMove = ['tm_handshake', 'tm_connect', 'tm_keepalive', 'tm_ack', 'replay_window_secs'];toMove.forEach(function(name){var el = document.querySelector('.cbi-value[data-name="' + name + '"]') || document.getElementById('cbi-telemt-general-' + name) || document.querySelector('[id$="-' + name + '"]');if(el) { el.style.paddingLeft = '15px'; details.appendChild(el); }});}, 300);</script>]]
 s:taboption("advanced", Value, "tm_handshake", "Handshake" .. tip("Client handshake timeout in seconds.")).default = "15"
 s:taboption("advanced", Value, "tm_connect", "Connect" .. tip("Telegram DC connect timeout in seconds.")).default = "10"
 s:taboption("advanced", Value, "tm_keepalive", "Keepalive" .. tip("Client keepalive interval in seconds.")).default = "60"
@@ -290,7 +290,7 @@ local mlink = s:taboption("advanced", DummyValue, "_mlink", "Prometheus Endpoint
 mlink.default = string.format([[<a id="prom_link" href="#" target="_blank" class="telemt-prom-link" style="font-family: monospace; color: #00a000; padding: 4px; background: rgba(0,0,0,0.05); border-radius: 4px; text-decoration: none; border: 1px solid rgba(0,160,0,0.2);">http://&lt;router_ip&gt;:%d/metrics</a><script>setTimeout(function(){ var a = document.getElementById('prom_link'); if(a) { a.href = window.location.protocol + '//' + window.location.hostname + ':%d/metrics'; } }, 500);</script>]], cur_m_port, cur_m_port)
 
 -- === TAB: TELEGRAM BOT ===
-local hbot = s:taboption("bot", DummyValue, "_head_bot", ""); hbot.rawhtml = true; hbot.default = "<div style='margin-bottom:15px;'><h3>Autonomous Telegram Bot (Sidecar)</h3><p style='opacity:0.8; margin-top:5px;'>Configure the autonomous local bot to monitor Telemt status, fetch stats via Telegram, and send crash alerts directly to your phone.</p></div>"
+local hbot = s:taboption("bot", DummyValue, "_head_bot", ""); hbot.rawhtml = true; hbot.default = "<div style='margin-bottom:15px; padding-top:10px;'><h3 style='margin-top:0;'>Autonomous Telegram Bot (Sidecar)</h3><p style='opacity:0.8; margin-top:5px; margin-bottom:0;'>Configure the autonomous local bot to monitor Telemt status, fetch stats via Telegram, and send crash alerts directly to your phone.</p></div>"
 s:taboption("bot", Flag, "bot_enabled", "Enable Bot Sidecar" .. tip("Start the autonomous monitoring script via procd.")).default = "0"
 local bt = s:taboption("bot", Value, "bot_token", "Bot Token" .. tip("Get it from @BotFather.")); bt.password = true; bt:depends("bot_enabled", "1")
 local bc = s:taboption("bot", Value, "bot_chat_id", "Admin Chat ID" .. tip("Your personal or group Chat ID for alerts.")); bc:depends("bot_enabled", "1")
@@ -311,7 +311,7 @@ s2.remove = function(self, section) sys.call(string.format("logger -t telemt 'We
 local sec = s2:option(Value, "secret", "Secret (32 hex)" .. tip("Leave empty to auto-generate.")); sec.rmempty = false; sec.datatype = "hexstring"; function sec.validate(self, value) if not value or value:gsub("%s+", "") == "" then value = (sys.exec("cat /proc/sys/kernel/random/uuid") or ""):gsub("%-", ""):gsub("%s+", ""):sub(1,32) end; if #value ~= 32 or not value:match("^[0-9a-fA-F]+$") then return nil, "Secret must be exactly 32 hex chars!" end; return value end
 local u_en = s2:option(Flag, "enabled", "Active" .. tip("Uncheck to manually pause this user.")); u_en.default = "1"; u_en.rmempty = false
 local t_con = s2:option(Value, "max_tcp_conns", "TCP Conns" .. tip("Limit sessions (e.g. 50)")); t_con.datatype = "uinteger"; t_con.placeholder = "unlimited"
-local t_uips = s2:option(Value, "max_unique_ips", "Max IPs" .. tip("Max unique client IPs per user.")); t_uips.datatype = "uinteger"; t_uips.placeholder = "unlimited"
+local t_uips = s2:option(Value, "max_unique_ips", "Max IPs" .. tip("Max unique client IPs.")); t_uips.datatype = "uinteger"; t_uips.placeholder = "unlimited"
 local t_qta = s2:option(Value, "data_quota", "Quota (GB)" .. tip("E.g. 1.5 or 0.5")); t_qta.datatype = "ufloat"; t_qta.placeholder = "unlimited"
 local t_exp = s2:option(Value, "expire_date", "Expire Date" .. tip("Format: DD.MM.YYYY HH:MM")); t_exp.datatype = "string"; t_exp.placeholder = "DD.MM.YYYY HH:MM"; function t_exp.validate(self, value) if not value then return "" end value = value:match("^%s*(.-)%s*$"); if value == "" or value == "unlimited" then return "" end if not value:match("^%d%d%.%d%d%.%d%d%d%d %d%d:%d%d$") then return nil, "Format: DD.MM.YYYY HH:MM" end return value end
 local lst = s2:option(DummyValue, "_stat", "Live Traffic" .. tip("Accumulated usage & sessions")); lst.rawhtml = true
@@ -323,7 +323,9 @@ local lnk = s2:option(DummyValue, "_link", "Ready-to-use link" .. tip("Click the
 
 m.description = [[
 <style>
-.cbi-value-helpicon, img[src*="help.gif"], img[src*="help.png"] { display: none !important; }
+/* Hiding standard LuCI help icons and tooltips */
+.cbi-value-helpicon, img[src*="help.gif"], img[src*="help.png"], .cbi-tooltip-container, .cbi-tooltip { display: none !important; }
+
 #cbi-telemt-user .cbi-section-table-descr { display: none !important; width: 0 !important; height: 0 !important; visibility: hidden !important; }
 #cbi-telemt-user .cbi-row-template, #cbi-telemt-user [id*="-template"] { display: none !important; visibility: hidden !important; height: 0 !important; overflow: hidden !important; pointer-events: none !important; }
 
@@ -332,8 +334,13 @@ html body #cbi-telemt-user .cbi-button-add, html body #cbi-telemt-upstream .cbi-
 html body #cbi-telemt-user .cbi-button-add:hover, html body #cbi-telemt-upstream .cbi-button-add:hover { background-color: #00a000 !important; color: #ffffff !important; -webkit-text-fill-color: #ffffff !important; }
 
 #cbi-telemt-user .cbi-section-table td:first-child { vertical-align: middle !important; }
-html body #cbi-telemt-user .cbi-section-table .cbi-button-remove:not(.telemt-btn-cross), html body #cbi-telemt-user td.cbi-section-actions .cbi-button-remove:not(.telemt-btn-cross), html body #cbi-telemt-upstream .cbi-button-remove { color: #d9534f !important; background-color: transparent !important; border: 1px solid #d9534f !important; transition: all 0.2s ease !important; padding: 0 12px !important; height: 30px !important; line-height: 28px !important; font-weight: normal !important; }
-html body #cbi-telemt-user .cbi-section-table .cbi-button-remove:not(.telemt-btn-cross):hover, html body #cbi-telemt-upstream .cbi-button-remove:hover { background-color: #d9534f !important; color: #ffffff !important; -webkit-text-fill-color: #ffffff !important; }
+html body #cbi-telemt-user .cbi-section-table .cbi-button-remove:not(.telemt-btn-cross), html body #cbi-telemt-user td.cbi-section-actions .cbi-button-remove:not(.telemt-btn-cross) { color: #d9534f !important; background-color: transparent !important; border: 1px solid #d9534f !important; transition: all 0.2s ease !important; padding: 0 12px !important; height: 30px !important; line-height: 28px !important; font-weight: normal !important; }
+html body #cbi-telemt-user .cbi-section-table .cbi-button-remove:not(.telemt-btn-cross):hover { background-color: #d9534f !important; color: #ffffff !important; -webkit-text-fill-color: #ffffff !important; }
+
+/* Upstreams Block Fix */
+#cbi-telemt-upstream .cbi-section-remove { text-align: left !important; margin-top: 15px !important; }
+html body #cbi-telemt-upstream .cbi-button-remove { float: none !important; display: inline-block !important; color: #d9534f !important; background-color: transparent !important; border: 1px solid #d9534f !important; padding: 0 12px !important; height: 30px !important; line-height: 28px !important; font-weight: normal !important; transition: all 0.2s ease !important; }
+html body #cbi-telemt-upstream .cbi-button-remove:hover { background-color: #d9534f !important; color: #ffffff !important; -webkit-text-fill-color: #ffffff !important; }
 
 .cbi-value-description { margin: -8px 0 0 0 !important; padding: 0 !important; font-size: 0.85em !important; opacity: 0.8; white-space: normal !important; }
 .telemt-tip { display: inline-block !important; vertical-align: middle !important; white-space: nowrap !important; cursor: help !important; opacity: 0.5 !important; font-size: 0.85em !important; border-bottom: 1px dotted currentColor !important; margin-left: 4px !important; margin-top: -2px !important; }
@@ -496,9 +503,9 @@ function fetchMetrics() {
         
         var sumEl = document.getElementById('telemt_users_summary_inner');
         if (sumEl) {
-            var dpiHtml = "<span><b style='color:#555;'>🛡️ DPI Probes:</b> <span style='color:" + (globalStatsObj.dpi > 0 ? "#d9534f" : "#00a000") + "; font-weight:bold; margin-left:4px;'>" + globalStatsObj.dpi + "</span></span>";
-            if (txt.trim() === "") { sumEl.innerHTML = "<span style='color:#d9534f; font-weight:bold;'>Status: Offline</span><span class='sum-divider'>|</span><span><b style='color:#555;'>Total DL:</b> <span style='color:#00a000;'>&darr; " + formatMB(totalTx) + "</span></span><span class='sum-divider'>|</span><span><b style='color:#555;'>Total UL:</b> <span style='color:#d35400;'>&uarr; " + formatMB(totalRx) + "</span></span><span class='sum-divider'>|</span><span><b style='color:#555;'>Users Online:</b> <b style='color:#888; margin-left:4px;'>0</b><span style='margin:0 4px;'>/</span>" + totalConfiguredUsers + "</span>"; } 
-            else { sumEl.innerHTML = "<b style='margin-right:6px;'>Uptime:</b><span style='color:#666;'>" + formatUptime(globalStatsObj.uptime) + "</span><span class='sum-divider'>|</span><span><b style='color:#555;'>Total DL:</b> <span style='color:#00a000;'>&darr; " + formatMB(totalTx) + "</span></span><span class='sum-divider'>|</span><span><b style='color:#555;'>Total UL:</b> <span style='color:#d35400;'>&uarr; " + formatMB(totalRx) + "</span></span><span class='sum-divider'>|</span><span><b style='color:#555;'>Bandwidth:</b> <span style='color:#00a000;'>&darr; " + speedDL.toFixed(2) + "</span> <span style='color:#d35400; margin-left:4px;'>&uarr; " + speedUL.toFixed(2) + "</span> <small>Mbps</small></span><span class='sum-divider'>|</span><span><b style='color:#555;'>Users Online:</b> <b style='color:#00a000; margin-left:4px;'>" + usersOnline + "</b><span style='margin:0 4px;'>/</span>" + totalConfiguredUsers + "</span><span class='sum-divider'>|</span>" + dpiHtml; }
+            var dpiHtml = "<span class='sum-divider'>|</span><span><b style='color:#555;'>🛡️ DPI Probes:</b> <span style='color:" + (globalStatsObj.dpi > 0 ? "#d9534f" : "#00a000") + "; font-weight:bold; margin-left:4px;'>" + globalStatsObj.dpi + "</span></span>";
+            if (txt.trim() === "") { sumEl.innerHTML = "<span style='color:#d9534f; font-weight:bold;'>Status: Offline</span><span class='sum-divider'>|</span><span><b style='color:#555;'>Total DL:</b> <span style='color:#00a000;'>&darr; " + formatMB(totalTx) + "</span></span><span class='sum-divider'>|</span><span><b style='color:#555;'>Total UL:</b> <span style='color:#d35400;'>&uarr; " + formatMB(totalRx) + "</span></span><span class='sum-divider'>|</span><span><b style='color:#555;'>Users Online:</b> <b style='color:#888; margin-left:4px;'>0</b><span style='margin:0 4px;'>/</span>" + totalConfiguredUsers + "</span>" + dpiHtml; } 
+            else { sumEl.innerHTML = "<b style='margin-right:6px;'>Uptime:</b><span style='color:#666;'>" + formatUptime(globalStatsObj.uptime) + "</span><span class='sum-divider'>|</span><span><b style='color:#555;'>Total DL:</b> <span style='color:#00a000;'>&darr; " + formatMB(totalTx) + "</span></span><span class='sum-divider'>|</span><span><b style='color:#555;'>Total UL:</b> <span style='color:#d35400;'>&uarr; " + formatMB(totalRx) + "</span></span><span class='sum-divider'>|</span><span><b style='color:#555;'>Bandwidth:</b> <span style='color:#00a000;'>&darr; " + speedDL.toFixed(2) + "</span> <span style='color:#d35400; margin-left:4px;'>&uarr; " + speedUL.toFixed(2) + "</span> <small>Mbps</small></span><span class='sum-divider'>|</span><span><b style='color:#555;'>Users Online:</b> <b style='color:#00a000; margin-left:4px;'>" + usersOnline + "</b><span style='margin:0 4px;'>/</span>" + totalConfiguredUsers + "</span>" + dpiHtml; }
         }
     }).catch(() => { window._telemtFetching = false; });
 }
@@ -511,7 +518,7 @@ function updateLinks() {
     var effectiveFmt = mode; if (mode === 'all' && fmtSelect) effectiveFmt = fmtSelect.value;
     if(!ip || !port) return;
     var hd = ""; if (domain && (effectiveFmt === 'tls' || effectiveFmt === 'all')) { for(var n=0; n<domain.length; n++) { var hex = domain.charCodeAt(n).toString(16); if (hex.length < 2) hex = "0" + hex; hd += hex; } }
-    document.querySelectorAll('.cbi-section-table-row, tr.cbi-row, div.cbi-row').forEach(function(row) {
+    document.querySelectorAll('#cbi-telemt-user .cbi-section-table-row:not(.cbi-row-template), #cbi-telemt-user tr.cbi-row:not(.cbi-row-template), #cbi-telemt-user div.cbi-row:not(.cbi-row-template)').forEach(function(row) {
         var secInp = row.querySelector('input[name*="secret"]'); var linkOut = row.querySelector('.user-link-out');
         if(secInp && linkOut) { var val = secInp.value.trim(); if(/^[0-9a-fA-F]{32}$/.test(val)) { var finalSecret = (effectiveFmt === 'tls' || effectiveFmt === 'all') ? "ee" + val + hd : ((effectiveFmt === 'dd') ? "dd" + val : val); linkOut.value = "tg://proxy?server=" + ip + "&port=" + port + "&secret=" + finalSecret; linkOut.classList.remove('user-link-err'); } else { linkOut.value = "Error: 32 hex chars required!"; linkOut.classList.add('user-link-err'); } }
     });
@@ -592,7 +599,7 @@ function fixTabIsolation() {
         var upTarget = upAnchor.closest('.cbi-tab') || upAnchor.closest('[data-tab]') || upAnchor.parentNode;
         if (upTarget && upTable.parentNode !== upTarget) { upTarget.appendChild(upTable); }
         upTable.style.display = ''; upTable.hidden = false;
-        var btnAddUp = upTable.querySelector('.cbi-button-add'); if (btnAddUp && btnAddUp.value.indexOf('Add') > -1) btnAddUp.value = 'Add Upstream';
+        var btnAddUp = upTable.querySelector('.cbi-button-add'); if (btnAddUp && btnAddUp.value !== 'Add Upstream') btnAddUp.value = 'Add Upstream';
     }
 }
 
@@ -626,6 +633,13 @@ function injectUI() {
                 var nameDiv = secretTd.querySelector('.telemt-fallback-name');
                 if (!nameDiv) { nameDiv = document.createElement('div'); nameDiv.className = 'telemt-fallback-name telemt-user-col-text'; nameDiv.style.cssText = 'margin-bottom: 6px; font-size: 1.1em; font-family: monospace; display: block; color: #005ce6 !important; font-weight: bold !important;'; secretTd.insertBefore(nameDiv, secretTd.firstChild); }
                 nameDiv.innerText = '[ user: ' + uName + ' ]'; 
+            }
+        } else {
+            var firstCell = row.firstElementChild;
+            if (firstCell && !firstCell.contains(secInp)) {
+                var span = firstCell.querySelector('.telemt-user-col-text');
+                if (!span) { span = document.createElement('span'); span.className = 'telemt-user-col-text'; span.style.cssText = 'color: #005ce6 !important; font-weight: bold !important; margin-bottom: 4px; display: block;'; firstCell.insertBefore(span, firstCell.firstChild); }
+                span.innerText = uName;
             }
         }
         
