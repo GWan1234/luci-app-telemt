@@ -49,7 +49,7 @@ if is_post and http.formvalue("auto_pause_user") then
     http.prepare_content("text/plain"); http.write("ok"); return
 end
 
--- Кнопки управления (Без редиректа, чтобы не ломать токен при Apply)
+-- РљРЅРѕРїРєРё СѓРїСЂР°РІР»РµРЅРёСЏ (Р‘РµР· СЂРµРґРёСЂРµРєС‚Р°, С‡С‚РѕР±С‹ РЅРµ Р»РѕРјР°С‚СЊ С‚РѕРєРµРЅ РїСЂРё Apply)
 if is_post and http.formvalue("reset_stats") == "1" then sys.call("logger -t telemt 'WebUI: Executed manual Reset Traffic Stats'; rm -f /tmp/telemt_stats.txt") end
 if is_post and http.formvalue("start") == "1" then sys.call("logger -t telemt 'WebUI: Manual START service requested'; /etc/init.d/telemt start") end
 if is_post and http.formvalue("stop") == "1" then sys.call("logger -t telemt 'WebUI: Manual STOP service requested'; /etc/init.d/telemt run_save_stats; /etc/init.d/telemt stop; sleep 1; pidof telemt >/dev/null && killall -9 telemt 2>/dev/null") end
@@ -61,6 +61,7 @@ if http.formvalue("export_config") == "1" then
     http.prepare_content("application/toml")
     http.header("Content-Disposition", "attachment; filename=\"telemt.toml\"")
     http.write(conf)
+    end_ajax()
     return
 end
 
@@ -77,6 +78,7 @@ if http.formvalue("get_fw_status") == "1" then
     if not is_running then status_msg = "<span style='color:#d9534f; font-weight:bold'>SERVICE STOPPED</span> <span style='color:#888'>|</span> " .. status_msg end
     http.prepare_content("text/plain")
     http.write(status_msg .. (tip_msg ~= "" and " <span style='color:#888; font-size:0.85em; margin-left:5px;'>" .. tip_msg .. "</span>" or ""))
+    end_ajax()
     return
 end
 
@@ -91,6 +93,7 @@ if http.formvalue("get_metrics") == "1" then
     if f then metrics = metrics .. "\n# ACCUMULATED\n"; for line in f:lines() do local u, tx, rx = line:match("^(%S+) (%S+) (%S+)$"); if u then metrics = metrics .. string.format("telemt_accumulated_tx{user=\"%s\"} %s\ntelemt_accumulated_rx{user=\"%s\"} %s\n", u, tx, u, rx) end end; f:close() end
     http.prepare_content("text/plain")
     http.write(metrics)
+    end_ajax()
     return
 end
 
@@ -101,6 +104,7 @@ if http.formvalue("get_scanners") == "1" then
     if not res or res:gsub("%s+", "") == "" then res = "No active scanners detected or proxy is offline." end
     http.prepare_content("text/plain")
     http.write(res)
+    end_ajax()
     return
 end
 
@@ -382,23 +386,27 @@ html body #cbi-telemt-user .cbi-button-add:hover, html body #cbi-telemt-upstream
 
 /* Upstreams Block Fix (Cards and Buttons - STRICT BOTTOM LEFT) */
 #cbi-telemt-upstream .cbi-section-node {
-    display: flex !important;
-    flex-direction: column !important;
-    background: rgba(128,128,128,0.03) !important;
-    border: 1px solid var(--border-color, rgba(128,128,128,0.2)) !important;
-    border-radius: 8px !important;
-    padding: 15px !important;
-    margin-bottom: 20px !important;
-}
-#cbi-telemt-upstream .cbi-section-remove {
-    order: 99 !important;
-    align-self: flex-start !important;
-    margin-top: 15px !important;
-    padding-top: 15px !important;
-    border-top: 1px dashed var(--border-color, rgba(128,128,128,0.3)) !important;
-    width: 100% !important;
-    text-align: left !important;
-}
+        background: rgba(128,128,128,0.03) !important;
+        border: 1px solid var(--border-color, rgba(128,128,128,0.2)) !important;
+        border-radius: 8px !important;
+        padding: 15px !important;
+        margin-bottom: 20px !important;
+    }
+    #cbi-telemt-upstream .cbi-section-node-row,
+    #cbi-telemt-upstream > div:not([id$="-template"]) {
+        display: flex !important;
+        flex-direction: column !important;
+    }
+#cbi-telemt-upstream > div:not([id$="-template"]) > .cbi-section-remove,
+    #cbi-telemt-upstream .cbi-section-node > .cbi-section-remove {
+        order: 99 !important;
+        align-self: flex-start !important;
+        margin-top: 15px !important;
+        padding-top: 15px !important;
+        border-top: 1px dashed var(--border-color, rgba(128,128,128,0.3)) !important;
+        width: 100% !important;
+        text-align: left !important;
+    }
 html body #cbi-telemt-upstream .cbi-button-remove { display: inline-block !important; float: left !important; margin: 0 !important; color: #d9534f !important; background-color: transparent !important; border: 1px solid #d9534f !important; padding: 0 12px !important; height: 30px !important; line-height: 28px !important; font-weight: normal !important; transition: all 0.2s ease !important; }
 html body #cbi-telemt-upstream .cbi-button-remove:hover { background-color: #d9534f !important; color: #ffffff !important; -webkit-text-fill-color: #ffffff !important; }
 
@@ -543,7 +551,7 @@ function fetchMetrics() {
             var finalTx = stat.live_tx + stat.acc_tx; var finalRx = stat.live_rx + stat.acc_rx; if (stat.conns > 0) usersOnline++;
             
             var qStr = statEl.getAttribute('data-q'); var eStr = statEl.getAttribute('data-e'); var isEn = statEl.getAttribute('data-en');
-            if (isEn === "0") { statEl.innerHTML = "<span style='color:#888; font-weight:bold;'>[⏸️ Paused]</span>"; return; }
+            if (isEn === "0") { statEl.innerHTML = "<span style='color:#888; font-weight:bold;'>[вЏёпёЏ Paused]</span>"; return; }
             
             var isExpired = false;
             if (eStr) { var p = eStr.split(' '); if(p.length==2) { var d=p[0].split('.'); var t=p[1].split(':'); if(d.length==3 && t.length==2) { if (Date.now() > new Date(d[2], d[1]-1, d[0], t[0], t[1]).getTime()) isExpired = true; } } }
@@ -562,7 +570,7 @@ function fetchMetrics() {
                     fetch(lu_current_url.split('#')[0], { method: 'POST', body: f });
                     statEl.setAttribute('data-en', '0');
                 }
-                statEl.innerHTML = "<span style='color:#d9534f; font-weight:bold;'>[" + (isExpired ? "⏱️ Expired" : "🛑 Quota") + "]</span>"; return; 
+                statEl.innerHTML = "<span style='color:#d9534f; font-weight:bold;'>[" + (isExpired ? "вЏ±пёЏ Expired" : "рџ›‘ Quota") + "]</span>"; return; 
             }
             
             var c_col = stat.conns > 0 ? "#00a000" : "#888"; 
@@ -576,7 +584,7 @@ function fetchMetrics() {
         
         var sumEl = document.getElementById('telemt_users_summary_inner');
         if (sumEl) {
-            var dpiHtml = "<span class='sum-divider'>|</span><span><b style='color:#555;'>🛡️ DPI Probes:</b> <span style='color:" + (globalStatsObj.dpi > 0 ? "#d9534f" : "#00a000") + "; font-weight:bold; margin-left:4px;'>" + globalStatsObj.dpi + "</span></span>";
+            var dpiHtml = "<span class='sum-divider'>|</span><span><b style='color:#555;'>рџ›ЎпёЏ DPI Probes:</b> <span style='color:" + (globalStatsObj.dpi > 0 ? "#d9534f" : "#00a000") + "; font-weight:bold; margin-left:4px;'>" + globalStatsObj.dpi + "</span></span>";
             if (txt.trim() === "") { sumEl.innerHTML = "<span style='color:#d9534f; font-weight:bold;'>Status: Offline</span><span class='sum-divider'>|</span><span><b style='color:#555;'>Total DL:</b> <span style='color:#00a000;'>&darr; " + formatMB(totalTx) + "</span></span><span class='sum-divider'>|</span><span><b style='color:#555;'>Total UL:</b> <span style='color:#d35400;'>&uarr; " + formatMB(totalRx) + "</span></span><span class='sum-divider'>|</span><span><b style='color:#555;'>Users Online:</b> <b style='color:#888; margin-left:4px;'>0</b><span style='margin:0 4px;'>/</span>" + totalConfiguredUsers + "</span>" + dpiHtml; } 
             else { sumEl.innerHTML = "<b style='margin-right:6px;'>Uptime:</b><span style='color:#666;'>" + formatUptime(globalStatsObj.uptime) + "</span><span class='sum-divider'>|</span><span><b style='color:#555;'>Total DL:</b> <span style='color:#00a000;'>&darr; " + formatMB(totalTx) + "</span></span><span class='sum-divider'>|</span><span><b style='color:#555;'>Total UL:</b> <span style='color:#d35400;'>&uarr; " + formatMB(totalRx) + "</span></span><span class='sum-divider'>|</span><span><b style='color:#555;'>Bandwidth:</b> <span style='color:#00a000;'>&darr; " + speedDL.toFixed(2) + "</span> <span style='color:#d35400; margin-left:4px;'>&uarr; " + speedUL.toFixed(2) + "</span> <small>Mbps</small></span><span class='sum-divider'>|</span><span><b style='color:#555;'>Users Online:</b> <b style='color:#00a000; margin-left:4px;'>" + usersOnline + "</b><span style='margin:0 4px;'>/</span>" + totalConfiguredUsers + "</span>" + dpiHtml; }
         }
@@ -597,17 +605,26 @@ function updateLinks() {
     });
 }
 
-function copyProxyLink(btn) { var row = btn.closest('.cbi-section-table-row') || btn.closest('.cbi-row'); if (!row) return; var input = row.querySelector('.user-link-out'); if (input && !input.classList.contains('user-link-err')) { var textToCopy = input.value; logToRouter("WebUI: Proxy link copied to clipboard"); if (navigator.clipboard && window.isSecureContext) { navigator.clipboard.writeText(textToCopy).then(function() { var oldVal = btn.value; btn.value = '✔'; setTimeout(function(){ btn.value = oldVal; }, 1500); }); } else { input.select(); input.setSelectionRange(0, 99999); try { if(document.execCommand('copy')) { var oldVal = btn.value; btn.value = '✔'; setTimeout(function(){ btn.value = oldVal; }, 1500); } } catch(e) {} } } }
+function copyProxyLink(btn) { var row = btn.closest('.cbi-section-table-row') || btn.closest('.cbi-row'); if (!row) return; var input = row.querySelector('.user-link-out'); if (input && !input.classList.contains('user-link-err')) { var textToCopy = input.value; logToRouter("WebUI: Proxy link copied to clipboard"); if (navigator.clipboard && window.isSecureContext) { navigator.clipboard.writeText(textToCopy).then(function() { var oldVal = btn.value; btn.value = 'вњ”'; setTimeout(function(){ btn.value = oldVal; }, 1500); }); } else { input.select(); input.setSelectionRange(0, 99999); try { if(document.execCommand('copy')) { var oldVal = btn.value; btn.value = 'вњ”'; setTimeout(function(){ btn.value = oldVal; }, 1500); } } catch(e) {} } } }
 
 function genRandHex() { var arr = new Uint8Array(16); (window.crypto || window.msCrypto).getRandomValues(arr); var h = ""; for(var i=0; i<16; i++) { var hex = arr[i].toString(16); if(hex.length < 2) hex = "0" + hex; h += hex; } return h; }
 
 function fetchIPViaWget(btn) { var oldVal = btn.value; btn.value = '...'; fetch(lu_current_url.split('#')[0] + (lu_current_url.indexOf('?') > -1 ? '&' : '?') + 'get_wan_ip=1&_t=' + Date.now()).then(r => r.text()).then(txt => { var match = txt.match(/\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b/); if (match) { var master = document.querySelector('input[name*="cbid.telemt.general.external_ip"]'); var mirror = document.getElementById('telemt_mirror_ip'); if(master) master.value = match[0]; if(mirror) mirror.value = match[0]; updateLinks(); } btn.value = oldVal; }).catch(() => { btn.value = oldVal; }); }
 
 function loadLog() { var btn = document.getElementById('btn_load_log'); if(!btn) return; var oldVal = btn.value; btn.value = 'Loading...'; fetch(lu_current_url.split('#')[0] + (lu_current_url.indexOf('?') > -1 ? '&' : '?') + 'get_log=1&_t=' + Date.now()).then(r => r.text()).then(txt => { document.getElementById('telemt_log_container').textContent = txt || 'No logs found.'; btn.value = 'System Log'; }).catch(() => { btn.value = 'Error'; }); }
-function loadScanners() { var btn = document.getElementById('btn_load_scanners'); if(!btn) return; var oldVal = btn.value; btn.value = 'Loading...'; fetch(lu_current_url.split('#')[0] + (lu_current_url.indexOf('?') > -1 ? '&' : '?') + 'get_scanners=1&_t=' + Date.now()).then(r => r.text()).then(txt => { document.getElementById('telemt_log_container').textContent = "=== 🛡️ ACTIVE DPI SCANNERS (beobachten.txt) ===\n\n" + (txt || 'No data.'); btn.value = 'Refresh Scanners'; }).catch(() => { btn.value = 'Error'; }); }
+function loadScanners() { var btn = document.getElementById('btn_load_scanners'); if(!btn) return; var oldVal = btn.value; btn.value = 'Loading...'; fetch(lu_current_url.split('#')[0] + (lu_current_url.indexOf('?') > -1 ? '&' : '?') + 'get_scanners=1&_t=' + Date.now()).then(r => r.text()).then(txt => { document.getElementById('telemt_log_container').textContent = "=== рџ›ЎпёЏ ACTIVE DPI SCANNERS (beobachten.txt) ===\n\n" + (txt || 'No data.'); btn.value = 'Refresh Scanners'; }).catch(() => { btn.value = 'Error'; }); }
 function copyLogContent(btn) { var logText = document.getElementById('telemt_log_container').textContent; if(!logText) return; var ta = document.createElement('textarea'); ta.value = logText; document.body.appendChild(ta); ta.select(); try { if(document.execCommand('copy')) { var oldVal = btn.value; btn.value = 'Copied!'; setTimeout(function(){ btn.value = oldVal; }, 1500); } } catch(e) {} document.body.removeChild(ta); }
 
-function updateFWStatus() { if (!document.getElementById('cbi-telemt-general')) return; var fwSpan = document.getElementById('fw_status_span'); if (!fwSpan) return; fetch(lu_current_url.split('#')[0] + (lu_current_url.indexOf('?') > -1 ? '&' : '?') + 'get_fw_status=1&_t=' + Date.now()).then(r => r.text()).then(txt => { if(txt.indexOf('OPEN') > -1 || txt.indexOf('CLOSED') > -1 || txt.indexOf('STOPPED') > -1) fwSpan.innerHTML = txt; }).catch(()=>{}); }
+
+    function cleanResponse(txt) {
+        if (!txt) return '';
+        var cut = txt.search(/<(!DOCTYPE|html[\s>])/i);
+        if (cut > 0) return txt.substring(0, cut).trim();
+        return txt;
+    }
+
+    function updateFWStatus() { if (!document.getElementById('cbi-telemt-general')) return; var fwSpan = document.getElementById('fw_status_span'); if (!fwSpan) return; fetch(lu_current_url.split('#')[0] + (lu_current_url.indexOf('?') > -1 ? '&' : '?') + 'get_fw_status=1&_t=' + Date.now()).then(r => r.text()).then(txt => { if(txt.indexOf('OPEN') > -1 || txt.indexOf('CLOSED') > -1 || txt.indexOf('STOPPED') > -1) txt = cleanResponse(txt);
+                    fwSpan.innerHTML = txt; }).catch(()=>{}); }
 
 function closeModals() { document.querySelectorAll('.qr-modal-overlay').forEach(function(m) { m.classList.remove('active'); }); document.body.classList.remove('qr-modal-open'); }
 function showQRModal(link) { if (!link || link.indexOf('Error') === 0) return; var overlay = document.getElementById('qr-modal'); if (!overlay) { overlay = document.createElement('div'); overlay.id = 'qr-modal'; overlay.className = 'qr-modal-overlay'; var content = document.createElement('div'); content.className = 'custom-modal-content'; var body = document.createElement('div'); body.id = 'qr-modal-body'; content.appendChild(body); var clsBtn = document.createElement('button'); clsBtn.className = 'cbi-button cbi-button-reset'; clsBtn.style.cssText = 'margin-top:15px; width:100%;'; clsBtn.innerText = 'Close'; clsBtn.addEventListener('click', closeModals); content.appendChild(clsBtn); overlay.appendChild(content); document.body.appendChild(overlay); overlay.addEventListener('click', function(e) { if (e.target === overlay) closeModals(); }); } var body = document.getElementById('qr-modal-body'); body.innerHTML = 'Generating...'; overlay.classList.add('active'); document.body.classList.add('qr-modal-open'); fetch(lu_current_url.split('#')[0] + (lu_current_url.indexOf('?') > -1 ? '&' : '?') + 'get_qr=1&link=' + encodeURIComponent(link) + '&_t=' + Date.now()).then(r => r.text()).then(txt => { if (txt.indexOf('error: qrencode_missing') > -1) body.innerHTML = '<div style="color:#d9534f; font-weight:bold; margin-bottom:10px;">Install qrencode</div>'; else if (txt.indexOf('error: invalid_link') > -1) body.innerHTML = '<div style="color:#d9534f; font-weight:bold;">Invalid Link Format</div>'; else { var svgMatch = txt.match(/<svg[\s\S]*?<\/svg>/i); body.innerHTML = svgMatch ? svgMatch[0] : 'Error'; } }).catch(() => { body.innerHTML = 'Connection error.'; }); }
@@ -685,7 +702,7 @@ function injectUI() {
     fixTabIsolation();
     
     var secretTh = document.querySelector('#cbi-telemt-user th[data-name="secret"]') || document.querySelector('#cbi-telemt-user .cbi-section-table-titles th:first-child') || document.querySelector('#cbi-telemt-user thead th:first-child');
-    if (secretTh && !secretTh.dataset.renamed) { var txt = (secretTh.textContent || '').trim().toLowerCase(); if (txt == 'secret' || txt == 'секрет' || txt == 'name' || txt == '') { secretTh.textContent = 'User / Secret'; secretTh.dataset.renamed = "1"; } }
+    if (secretTh && !secretTh.dataset.renamed) { var txt = (secretTh.textContent || '').trim().toLowerCase(); if (txt == 'secret' || txt == 'СЃРµРєСЂРµС‚' || txt == 'name' || txt == '') { secretTh.textContent = 'User / Secret'; secretTh.dataset.renamed = "1"; } }
     
     var btnAdd = document.querySelector('#cbi-telemt-user .cbi-button-add'); if (btnAdd && btnAdd.value !== 'Add user') btnAdd.value = 'Add user';
     var newNameInp = document.querySelector('.cbi-section-create-name'); if(newNameInp && !newNameInp.dataset.maxInjected) { newNameInp.dataset.maxInjected = "1"; newNameInp.maxLength = 15; newNameInp.placeholder = "a-z, 0-9, _"; }
@@ -715,7 +732,7 @@ function injectUI() {
             var updateTitle = function() {
                 var vName = (nameInput && nameInput.value.trim() !== "") ? nameInput.value.trim() : '';
                 var vAddr = (addrInput && addrInput.value.trim() !== "") ? addrInput.value.trim() : '';
-                var dash1 = vName ? ' — ' + vName : '';
+                var dash1 = vName ? ' вЂ” ' + vName : '';
                 var dash2 = vAddr ? ' <span style="color:#888; font-weight:normal; font-size:0.9em;">(' + vAddr + ')</span>' : '';
                 titleSpan.innerHTML = 'Cascade #' + (index + 1) + dash1 + dash2;
             };
