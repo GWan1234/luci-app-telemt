@@ -1,6 +1,6 @@
 -- ==============================================================================
 -- Telemt CBI Model (Configuration Binding Interface)
--- Version: 3.1.4-6 (Epoch 1) - JS FIXED & UCODE PROOF
+-- Version: 3.1.4-7 (Epoch 1) - UCODE NATIVE BYPASS & UI POLISH
 -- ==============================================================================
 
 local sys = require "luci.sys"
@@ -28,27 +28,37 @@ local safe_url = current_url:gsub('"', '\\"'):gsub('<', '&lt;'):gsub('>', '&gt;'
 local function tip(txt) return string.format([[<span class="telemt-tip" title="%s">(?)</span>]], txt:gsub('"', '&quot;')) end
 
 -- ==============================================================================
--- AJAX DISPATCHER (STRICT UCODE-KILLER VIA OS.EXIT)
+-- AJAX DISPATCHER (NATIVE LUCI UCODE BYPASS)
 -- ==============================================================================
 local is_post = (http.getenv("REQUEST_METHOD") == "POST")
 
 local function raw_reply(data, content_type)
     http.prepare_content(content_type or "text/plain")
     http.write(data)
-    if io.stdout.close then io.stdout:close() end
-    os.exit(0)
+    -- Tell LuCI dispatcher that rendering is already handled, skipping header/footer
+    if dsp.context then dsp.context.rendered = true end
+    local tpl = require "luci.template"
+    if tpl.context then tpl.context.view = true end
+    -- Return dummy map to satisfy ucode map parser
+    local dummy = Map("telemt", "")
+    dummy.render = function() end; dummy.parse = function() end
+    return dummy
 end
 
 local function clean_redirect(url)
-    http.header("Location", url); http.status(302, "Found")
-    if io.stdout.close then io.stdout:close() end
-    os.exit(0)
+    http.redirect(url)
+    if dsp.context then dsp.context.rendered = true end
+    local tpl = require "luci.template"
+    if tpl.context then tpl.context.view = true end
+    local dummy = Map("telemt", "")
+    dummy.render = function() end; dummy.parse = function() end
+    return dummy
 end
 
 if is_post and http.formvalue("log_ui_event") == "1" then
     local msg = http.formvalue("msg")
     if msg then sys.call(string.format("logger -t telemt %q", "WebUI: " .. msg:gsub("[%c]", " "):gsub("[^A-Za-z0-9 _.%-%:]", ""):sub(1, 128))) end
-    raw_reply("ok")
+    return raw_reply("ok")
 end
 
 if is_post and http.formvalue("auto_pause_user") then
@@ -59,13 +69,13 @@ if is_post and http.formvalue("auto_pause_user") then
         sys.call(string.format("logger -t telemt 'WebUI: Auto-paused user %s (Reason: %s)'", u, reason))
         sys.call("/etc/init.d/telemt reload >/dev/null 2>&1 &")
     end
-    raw_reply("ok")
+    return raw_reply("ok")
 end
 
-if is_post and http.formvalue("reset_stats") == "1" then sys.call("logger -t telemt 'WebUI: Executed manual Reset Traffic Stats'; rm -f /tmp/telemt_stats.txt"); clean_redirect(current_url) end
-if is_post and http.formvalue("start") == "1" then sys.call("logger -t telemt 'WebUI: Manual START service requested'; /etc/init.d/telemt start"); clean_redirect(current_url) end
-if is_post and http.formvalue("stop") == "1" then sys.call("logger -t telemt 'WebUI: Manual STOP service requested'; /etc/init.d/telemt run_save_stats; /etc/init.d/telemt stop; sleep 1; pidof telemt >/dev/null && killall -9 telemt 2>/dev/null"); clean_redirect(current_url) end
-if is_post and http.formvalue("restart") == "1" then sys.call("logger -t telemt 'WebUI: Manual RESTART service requested'; /etc/init.d/telemt run_save_stats; /etc/init.d/telemt stop; sleep 1; pidof telemt >/dev/null && killall -9 telemt 2>/dev/null; /etc/init.d/telemt start"); clean_redirect(current_url) end
+if is_post and http.formvalue("reset_stats") == "1" then sys.call("logger -t telemt 'WebUI: Executed manual Reset Traffic Stats'; rm -f /tmp/telemt_stats.txt"); return clean_redirect(current_url) end
+if is_post and http.formvalue("start") == "1" then sys.call("logger -t telemt 'WebUI: Manual START service requested'; /etc/init.d/telemt start"); return clean_redirect(current_url) end
+if is_post and http.formvalue("stop") == "1" then sys.call("logger -t telemt 'WebUI: Manual STOP service requested'; /etc/init.d/telemt run_save_stats; /etc/init.d/telemt stop; sleep 1; pidof telemt >/dev/null && killall -9 telemt 2>/dev/null"); return clean_redirect(current_url) end
+if is_post and http.formvalue("restart") == "1" then sys.call("logger -t telemt 'WebUI: Manual RESTART service requested'; /etc/init.d/telemt run_save_stats; /etc/init.d/telemt stop; sleep 1; pidof telemt >/dev/null && killall -9 telemt 2>/dev/null; /etc/init.d/telemt start"); return clean_redirect(current_url) end
 
 local is_ajax = (http.formvalue("get_metrics") or http.formvalue("get_fw_status") or http.formvalue("get_log") or http.formvalue("get_scanners") or http.formvalue("get_wan_ip") or http.formvalue("get_qr"))
 
@@ -80,7 +90,7 @@ if http.formvalue("get_fw_status") == "1" then
     if is_physically_open then status_msg = "<span style='color:green; font-weight:bold'>OPEN (OK)</span>"; tip_msg = (afw == "0") and "(Auto-FW off, but port is open)" or ""
     elseif is_procd_open and is_running then status_msg = "<span style='color:green; font-weight:bold'>OPEN (OK)</span>"; tip_msg = "(Visible via ubus API)" end
     if not is_running then status_msg = "<span style='color:#d9534f; font-weight:bold'>SERVICE STOPPED</span> <span style='color:#888'>|</span> " .. status_msg end
-    raw_reply(status_msg .. (tip_msg ~= "" and " <span style='color:#888; font-size:0.85em; margin-left:5px;'>" .. tip_msg .. "</span>" or ""))
+    return raw_reply(status_msg .. (tip_msg ~= "" and " <span style='color:#888; font-size:0.85em; margin-left:5px;'>" .. tip_msg .. "</span>" or ""))
 end
 
 if http.formvalue("get_metrics") == "1" then
@@ -92,7 +102,7 @@ if http.formvalue("get_metrics") == "1" then
     end
     local f = io.open("/tmp/telemt_stats.txt", "r")
     if f then metrics = metrics .. "\n# ACCUMULATED\n"; for line in f:lines() do local u, tx, rx = line:match("^(%S+) (%S+) (%S+)$"); if u then metrics = metrics .. string.format("telemt_accumulated_tx{user=\"%s\"} %s\ntelemt_accumulated_rx{user=\"%s\"} %s\n", u, tx, u, rx) end end; f:close() end
-    raw_reply(metrics)
+    return raw_reply(metrics)
 end
 
 if http.formvalue("get_scanners") == "1" then
@@ -100,30 +110,30 @@ if http.formvalue("get_scanners") == "1" then
     local fetch_cmd = (fetch_bin == "wget") and "wget -q --timeout=3 -O -" or "uclient-fetch -q --timeout=3 -O -"
     local res = sys.exec(string.format("%s 'http://127.0.0.1:%d/beobachten' 2>/dev/null", fetch_cmd, m_port))
     if not res or res:gsub("%s+", "") == "" then res = "No active scanners detected or proxy is offline." end
-    raw_reply(res)
+    return raw_reply(res)
 end
 
 if http.formvalue("get_log") == "1" then
     local cmd = "logread -e 'telemt' | tail -n 50 2>/dev/null"
     if has_cmd("timeout") then cmd = "timeout 2 " .. cmd end
     local log_data = sys.exec(cmd); if not log_data or log_data:gsub("%s+", "") == "" then log_data = "No logs found." end
-    raw_reply(log_data:gsub("\27%[[%d;]*m", ""))
+    return raw_reply(log_data:gsub("\27%[[%d;]*m", ""))
 end
 
 if http.formvalue("get_wan_ip") == "1" then
     local fetch_cmd = (fetch_bin == "wget") and "wget -q --timeout=3 -O -" or "uclient-fetch -q --timeout=3 -O -"
     local ip = (sys.exec(fetch_cmd .. " https://ipv4.internet.yandex.net/api/v0/ip 2>/dev/null") or ""):gsub("%s+", ""):gsub("\"", "")
     if not ip:match("^%d+%.%d+%.%d+%.%d+$") then ip = (sys.exec(fetch_cmd .. " https://checkip.amazonaws.com 2>/dev/null") or ""):gsub("%s+", "") end
-    raw_reply(ip:match("^%d+%.%d+%.%d+%.%d+$") and ip or "0.0.0.0")
+    return raw_reply(ip:match("^%d+%.%d+%.%d+%.%d+$") and ip or "0.0.0.0")
 end
 
 if http.formvalue("get_qr") == "1" then
     local link = http.formvalue("link")
-    if not link or link == "" or not link:match("^tg://proxy%?[a-zA-Z0-9=%%&_.-]+$") then raw_reply("error: invalid_link"); end
-    if not has_cmd("qrencode") then raw_reply("error: qrencode_missing"); end
+    if not link or link == "" or not link:match("^tg://proxy%?[a-zA-Z0-9=%%&_.-]+$") then return raw_reply("error: invalid_link") end
+    if not has_cmd("qrencode") then return raw_reply("error: qrencode_missing") end
     local cmd = string.format("qrencode -t SVG -s 4 -m 1 -o - %q 2>/dev/null", link)
     if has_cmd("timeout") then cmd = "timeout 2 " .. cmd end
-    raw_reply(sys.exec(cmd), "image/svg+xml")
+    return raw_reply(sys.exec(cmd), "image/svg+xml")
 end
 
 local function norm_secret(s) if not s then return nil end; s = s:match("secret=(%x+)") or s; local hex = s:match("(%x+)"); if not hex then return nil end; local pfx = hex:sub(1,2):lower(); if pfx == "ee" or pfx == "dd" then hex = hex:sub(3) end; if #hex < 32 then return nil end; return hex:sub(1, 32):lower() end
@@ -154,10 +164,10 @@ if is_post and http.formvalue("import_users") == "1" then
             end
             uci_cursor:save("telemt"); uci_cursor:commit("telemt")
             sys.call("logger -t telemt \"WebUI: Successfully imported " .. #valid_users .. " users via CSV.\"")
-            clean_redirect(current_url .. (current_url:match("?") and "&" or "?") .. "import_ok=" .. tostring(#valid_users))
+            return clean_redirect(current_url .. (current_url:match("?") and "&" or "?") .. "import_ok=" .. tostring(#valid_users))
         end
     end
-    clean_redirect(current_url)
+    return clean_redirect(current_url)
 end
 
 local clean_csv = "username,secret,max_tcp_conns,max_unique_ips,data_quota,expire_date\n"
@@ -171,7 +181,7 @@ if not is_ajax then
     else bin_info = string.format("<small style='opacity: 0.6;'>%s (v%s)</small>", bin_path, read_file("/var/etc/telemt.version") == "" and "unknown" or read_file("/var/etc/telemt.version")) end
 end
 
-m = Map("telemt", "Telegram Proxy (MTProto)", [[Multi-user proxy server based on <a href="https://github.com/telemt/telemt" target="_blank" style="text-decoration:none; color:inherit; font-weight:bold; border-bottom: 1px dotted currentColor;">telemt</a>.<br><b>LuCI App Version: <a href="https://github.com/Medvedolog/luci-app-telemt" target="_blank" style="text-decoration:none; color:inherit; border-bottom: 1px dotted currentColor;">3.1.4-6</a></b> | <span style='color:#d35400; font-weight:bold;'>Requires telemt v3.1.3+</span>]])
+m = Map("telemt", "Telegram Proxy (MTProto)", [[Multi-user proxy server based on <a href="https://github.com/telemt/telemt" target="_blank" style="text-decoration:none; color:inherit; font-weight:bold; border-bottom: 1px dotted currentColor;">telemt</a>.<br><b>LuCI App Version: <a href="https://github.com/Medvedolog/luci-app-telemt" target="_blank" style="text-decoration:none; color:inherit; border-bottom: 1px dotted currentColor;">3.1.4-7</a></b> | <span style='color:#d35400; font-weight:bold;'>Requires telemt v3.1.3+</span>]])
 m.on_commit = function(self) sys.call("logger -t telemt 'WebUI: Config saved. Dumping stats before procd reload...'; /etc/init.d/telemt run_save_stats 2>/dev/null") end
 
 s = m:section(NamedSection, "general", "telemt")
@@ -245,13 +255,23 @@ local up_master = s:taboption("upstreams", Flag, "enable_upstreams", "Enable All
 
 s_up = m:section(TypedSection, "upstream", "Upstream Proxies (Cascades)", "Chain your outgoing Telegram traffic through other servers (e.g. to bypass ISP DPI).<br><b>Note:</b> If no upstreams are enabled, the proxy will fallback to <b>Direct connection</b>.")
 s_up.addremove = true; s_up.anonymous = true
-local u_lbl = s_up:option(Value, "alias", "Cascade Name" .. tip("Optional friendly name to easily identify this route.")); u_lbl.placeholder = "e.g. Frankfurt Server"
+
+local u_lbl = s_up:option(Value, "alias", "Cascade Name" .. tip("Optional. Latin letters, numbers and spaces only.")); u_lbl.placeholder = "e.g. Frankfurt Server"
+function u_lbl.validate(self, v) if v and v ~= "" and not v:match("^[A-Za-z0-9 _]+$") then return nil, "Only Latin letters, numbers and spaces allowed!" end return v end
+
 local uen = s_up:option(Flag, "enabled", "Active"); uen.default = "1"; uen.rmempty = false
 local ut = s_up:option(ListValue, "type", "Protocol")
 ut:value("direct", "Direct"); ut:value("socks4", "SOCKS4"); ut:value("socks5", "SOCKS5"); ut.default = "socks5"
-local ua = s_up:option(Value, "address", "Address" .. tip("Format: IP:PORT or HOST:PORT")); ua.datatype = "hostport"
-local uu = s_up:option(Value, "username", "Username" .. tip("Optional. English letters, numbers and symbols _ . - only.")); function uu.validate(self, v) if v and v ~= "" and not v:match("^[A-Za-z0-9_.-]+$") then return nil, "Invalid characters" end return v end
-local up = s_up:option(Value, "password", "Password" .. tip("Optional. Password for SOCKS. English characters only.")); up.password = true; function up.validate(self, v) if v and v ~= "" and not v:match("^[A-Za-z0-9_.-]+$") then return nil, "Invalid characters" end return v end
+
+local ua = s_up:option(Value, "address", "Address" .. tip("Format: IP:PORT or HOST:PORT. No hyphens allowed.")); ua.datatype = "hostport"
+function ua.validate(self, v) if v and v ~= "" and not v:match("^[A-Za-z0-9%.%:]+$") then return nil, "Invalid characters in address! No hyphens allowed." end return v end
+
+local uu = s_up:option(Value, "username", "Username" .. tip("Optional. Latin letters and numbers only, no hyphens."));
+function uu.validate(self, v) if v and v ~= "" and not v:match("^[A-Za-z0-9_]+$") then return nil, "Only Latin letters, numbers and underscores allowed!" end return v end
+
+local up = s_up:option(Value, "password", "Password" .. tip("Optional. Password for SOCKS. Latin only, no hyphens.")); up.password = true;
+function up.validate(self, v) if v and v ~= "" and not v:match("^[A-Za-z0-9_]+$") then return nil, "Only Latin letters, numbers and underscores allowed!" end return v end
+
 local uw = s_up:option(Value, "weight", "Weight" .. tip("Routing priority weight. Default: 10.")); uw.datatype = "uinteger"; uw.default = "10"; uw.placeholder = "10"
 
 -- === TAB: ADVANCED ===
@@ -271,7 +291,7 @@ s:taboption("advanced", Flag, "auto_degradation", "Auto-Degradation" .. tip("Ena
 s:taboption("advanced", Value, "degradation_min_dc", "Degradation Min DC" .. tip("Minimum unavailable ME DC groups before degrading. Default: 2.")):depends("auto_degradation", "1")
 
 local hadv = s:taboption("advanced", DummyValue, "_head_adv"); hadv.rawhtml = true
-hadv.default = [[<details id="telemt_adv_opts_details" style="display:block; width:100%; box-sizing:border-box; margin-top:20px; padding:10px; background:rgba(128,128,128,0.05); border:1px solid rgba(128,128,128,0.3); border-radius:6px; cursor:pointer;"><summary style="font-weight:bold; font-size:1.05em; outline:none; cursor:pointer;">Additional Options (Click to expand)</summary><p style="font-size:0.85em; opacity:0.8; margin-top:5px; margin-bottom:0;">Extra proxy settings and overrides.</p></details><script>setTimeout(function(){var d = document.getElementById('telemt_adv_opts_details');if(!d) return;var tM = ['desync_all_full', 'mask_proxy_protocol', 'announce_ip', 'ad_tag', 'fake_cert_len', 'tls_full_cert_ttl_secs', 'ignore_time_skew'];tM.forEach(function(n){var el = document.querySelector('.cbi-value[data-name="' + n + '"]') || document.getElementById('cbi-telemt-general-' + n) || document.querySelector('[id$="-' + n + '"]');if(el) { el.style.paddingLeft = '15px'; d.appendChild(el); }});}, 300);</script>]]
+hadv.default = [[<div style="width:100%;"><details id="telemt_adv_opts_details" style="display:block; width:100%; box-sizing:border-box; margin-top:20px; padding:10px; background:rgba(128,128,128,0.05); border:1px solid rgba(128,128,128,0.3); border-radius:6px; cursor:pointer;"><summary style="font-weight:bold; font-size:1.05em; outline:none; cursor:pointer;">Additional Options (Click to expand)</summary><p style="font-size:0.85em; opacity:0.8; margin-top:5px; margin-bottom:0;">Extra proxy settings and overrides.</p></details></div><script>setTimeout(function(){var d = document.getElementById('telemt_adv_opts_details');if(!d) return;var tM = ['desync_all_full', 'mask_proxy_protocol', 'announce_ip', 'ad_tag', 'fake_cert_len', 'tls_full_cert_ttl_secs', 'ignore_time_skew'];tM.forEach(function(n){var el = document.querySelector('.cbi-value[data-name="' + n + '"]') || document.getElementById('cbi-telemt-general-' + n) || document.querySelector('[id$="-' + n + '"]');if(el) { el.style.paddingLeft = '15px'; d.appendChild(el); }});}, 300);</script>]]
 s:taboption("advanced", Flag, "desync_all_full", "Full Crypto-Desync Logs" .. tip("Emit full forensic logs for every event. Default: disabled (false).")).default = "0"
 local mpp = s:taboption("advanced", ListValue, "mask_proxy_protocol", "Mask Proxy Protocol" .. tip("Send PROXY protocol header to mask_host (if behind HAProxy/Nginx).")); mpp:value("0", "0 (Off)"); mpp:value("1", "1 (v1 - Text)"); mpp:value("2", "2 (v2 - Binary)"); mpp.default = "0"
 local ip = s:taboption("advanced", Value, "announce_ip", "Announce Address" .. tip("Optional. Public IP or Domain for tg:// links. Overrides 'External IP' if set.")); ip.datatype = "string"
@@ -281,7 +301,7 @@ s:taboption("advanced", Value, "tls_full_cert_ttl_secs", "TLS Full Cert TTL (sec
 s:taboption("advanced", Flag, "ignore_time_skew", "Ignore Time Skew" .. tip("Disable strict time checks. Useful if clients have desynced clocks.")).default = "0"
 
 local htm = s:taboption("advanced", DummyValue, "_head_tm"); htm.rawhtml = true
-htm.default = [[<details id="telemt_timeouts_details" style="display:block; width:100%; box-sizing:border-box; margin-top:20px; padding:10px; background:rgba(128,128,128,0.05); border:1px solid rgba(128,128,128,0.3); border-radius:6px; cursor:pointer;"><summary style="font-weight:bold; font-size:1.05em; outline:none; cursor:pointer;">Timeouts & Replay Protection (Click to expand)</summary><p style="font-size:0.85em; opacity:0.8; margin-top:5px; margin-bottom:0;">Adjust connection timeouts and replay window. Leave defaults if unsure.</p></details><script>setTimeout(function(){var details = document.getElementById('telemt_timeouts_details');if(!details) return;var toMove = ['tm_handshake', 'tm_connect', 'tm_keepalive', 'tm_ack', 'replay_window_secs'];toMove.forEach(function(name){var el = document.querySelector('.cbi-value[data-name="' + name + '"]') || document.getElementById('cbi-telemt-general-' + name) || document.querySelector('[id$="-' + name + '"]');if(el) { el.style.paddingLeft = '15px'; details.appendChild(el); }});}, 300);</script>]]
+htm.default = [[<div style="width:100%;"><details id="telemt_timeouts_details" style="display:block; width:100%; box-sizing:border-box; margin-top:20px; padding:10px; background:rgba(128,128,128,0.05); border:1px solid rgba(128,128,128,0.3); border-radius:6px; cursor:pointer;"><summary style="font-weight:bold; font-size:1.05em; outline:none; cursor:pointer;">Timeouts & Replay Protection (Click to expand)</summary><p style="font-size:0.85em; opacity:0.8; margin-top:5px; margin-bottom:0;">Adjust connection timeouts and replay window. Leave defaults if unsure.</p></details></div><script>setTimeout(function(){var details = document.getElementById('telemt_timeouts_details');if(!details) return;var toMove = ['tm_handshake', 'tm_connect', 'tm_keepalive', 'tm_ack', 'replay_window_secs'];toMove.forEach(function(name){var el = document.querySelector('.cbi-value[data-name="' + name + '"]') || document.getElementById('cbi-telemt-general-' + name) || document.querySelector('[id$="-' + name + '"]');if(el) { el.style.paddingLeft = '15px'; details.appendChild(el); }});}, 300);</script>]]
 s:taboption("advanced", Value, "tm_handshake", "Handshake" .. tip("Client handshake timeout in seconds.")).default = "15"
 s:taboption("advanced", Value, "tm_connect", "Connect" .. tip("Telegram DC connect timeout in seconds.")).default = "10"
 s:taboption("advanced", Value, "tm_keepalive", "Keepalive" .. tip("Client keepalive interval in seconds.")).default = "60"
@@ -346,7 +366,7 @@ html body #cbi-telemt-user .cbi-button-add:hover, html body #cbi-telemt-upstream
 
 #cbi-telemt-user .cbi-section-table td:first-child { vertical-align: middle !important; }
 
-/* DELETE BUTTON FIX - EXACT WIDTH LIMITS FOR DESKTOP */
+/* DELETE BUTTON FIX - EXACT WIDTH LIMITS FOR DESKTOP (USERS) */
 #cbi-telemt-user .cbi-section-table .cbi-button-remove:not(.telemt-btn-cross), #cbi-telemt-user td.cbi-section-actions .cbi-button-remove:not(.telemt-btn-cross) { 
     color: #d9534f !important; background-color: transparent !important; border: 1px solid #d9534f !important; transition: all 0.2s ease !important; 
     padding: 0 12px !important; height: 30px !important; line-height: 28px !important; font-weight: normal !important; 
@@ -354,9 +374,8 @@ html body #cbi-telemt-user .cbi-button-add:hover, html body #cbi-telemt-upstream
 }
 #cbi-telemt-user .cbi-section-table .cbi-button-remove:not(.telemt-btn-cross):hover { background-color: #d9534f !important; color: #ffffff !important; -webkit-text-fill-color: #ffffff !important; }
 
-/* Upstreams Block Fix */
-#cbi-telemt-upstream .cbi-section-remove { text-align: left !important; margin-top: 15px !important; }
-html body #cbi-telemt-upstream .cbi-button-remove { float: none !important; display: inline-block !important; color: #d9534f !important; background-color: transparent !important; border: 1px solid #d9534f !important; padding: 0 12px !important; height: 30px !important; line-height: 28px !important; font-weight: normal !important; transition: all 0.2s ease !important; }
+/* Upstreams Block Fix (Cards and Buttons) */
+html body #cbi-telemt-upstream .cbi-button-remove { display: inline-block !important; color: #d9534f !important; background-color: transparent !important; border: 1px solid #d9534f !important; padding: 0 12px !important; height: 30px !important; line-height: 28px !important; font-weight: normal !important; transition: all 0.2s ease !important; }
 html body #cbi-telemt-upstream .cbi-button-remove:hover { background-color: #d9534f !important; color: #ffffff !important; -webkit-text-fill-color: #ffffff !important; }
 
 .cbi-value-description { margin: -8px 0 0 0 !important; padding: 0 !important; font-size: 0.85em !important; opacity: 0.8; white-space: normal !important; }
@@ -436,7 +455,7 @@ html body #cbi-telemt-upstream .cbi-button-remove:hover { background-color: #d95
     .telemt-dash-bot-row { display:flex; flex-direction:column; margin-bottom:15px; gap:15px; text-align:center; }
 }
 
-/* FIXED DARK CSV MODAL */
+/* DARK CSV MODAL */
 .qr-modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 2147483647 !important; display: flex; align-items: center; justify-content: center; opacity: 0; pointer-events: none; transition: opacity 0.2s; }
 .qr-modal-overlay.active { opacity: 1; pointer-events: auto; }
 .custom-modal-content { background-color: #1e1e1e !important; color: #dddddd !important; padding: 20px; border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.8); border: 1px solid #444 !important; text-align: center; max-width: 450px; width: 90%; }
@@ -644,15 +663,43 @@ function injectUI() {
     var ipFlds = []; var m1 = document.querySelector('input[name*="cbid.telemt.general.external_ip"]'); if(m1) ipFlds.push(m1); var m2 = document.getElementById('telemt_mirror_ip'); if(m2) ipFlds.push(m2);
     ipFlds.forEach(function(ipFld) { if(!ipFld.dataset.refBtnInjected && ipFld.type !== "hidden") { ipFld.dataset.refBtnInjected = "1"; if(ipFld.parentNode) { ipFld.parentNode.style.display = 'flex'; ipFld.parentNode.style.alignItems = 'center'; var btn = document.createElement('input'); btn.type = 'button'; btn.className = 'cbi-button cbi-button-neural'; btn.value = 'Get IP'; btn.style.marginLeft = '5px'; btn.style.padding = '0 10px'; btn.style.height = ipFld.offsetHeight > 0 ? ipFld.offsetHeight + 'px' : '32px'; btn.addEventListener('click', function(){ fetchIPViaWget(this); }); ipFld.parentNode.appendChild(btn); } } });
 
-    // INJECT CASCADE NUMBERS
-    document.querySelectorAll('#cbi-telemt-upstream .cbi-section-node:not([id*="-template"]), #cbi-telemt-upstream .cbi-section-table-row:not(.cbi-row-template)').forEach(function(row, index) {
-        if (!row.dataset.cascadeInjected) {
-            row.dataset.cascadeInjected = "1";
-            var header = document.createElement('div');
+    // INJECT CASCADE NUMBERS AND MOVE DELETE BUTTON
+    document.querySelectorAll('#cbi-telemt-upstream .cbi-section-node:not([id*="-template"])').forEach(function(row, index) {
+        var header = row.querySelector('.telemt-cascade-header');
+        var nameInput = row.querySelector('input[name*=".alias"]');
+        var nameVal = (nameInput && nameInput.value.trim() !== "") ? ' — ' + nameInput.value.trim() : '';
+
+        if (!header) {
+            row.style.background = 'rgba(128,128,128,0.03)';
+            row.style.border = '1px solid var(--border-color, rgba(128,128,128,0.2))';
+            row.style.borderRadius = '8px';
+            row.style.padding = '15px';
+            row.style.marginBottom = '20px';
+            
+            header = document.createElement('div');
             header.className = 'telemt-cascade-header';
-            header.style.cssText = 'font-size:1.1em; font-weight:bold; color:#00a000; margin-bottom:15px; border-bottom:1px dashed rgba(0,160,0,0.4); padding-bottom:4px; margin-top:5px;';
-            header.innerText = 'Cascade #' + (index + 1);
+            header.style.cssText = 'font-size:1.1em; font-weight:bold; color:#00a000; margin-bottom:15px; border-bottom:1px dashed rgba(0,160,0,0.4); padding-bottom:4px;';
             row.insertBefore(header, row.firstChild);
+        }
+        header.innerText = 'Cascade #' + (index + 1) + nameVal;
+
+        if (nameInput && !nameInput.dataset.lblListener) {
+            nameInput.dataset.lblListener = "1";
+            nameInput.addEventListener('input', function(e) {
+                 var v = e.target.value.trim() !== "" ? ' — ' + e.target.value.trim() : '';
+                 header.innerText = 'Cascade #' + (index + 1) + v;
+            });
+        }
+        
+        var rmBtn = row.querySelector('.cbi-section-remove');
+        if (rmBtn) {
+            row.appendChild(rmBtn);
+            rmBtn.style.textAlign = 'right';
+            rmBtn.style.marginTop = '15px';
+            rmBtn.style.paddingTop = '15px';
+            rmBtn.style.borderTop = '1px dashed var(--border-color, rgba(128,128,128,0.3))';
+            var btnInput = rmBtn.querySelector('.cbi-button');
+            if (btnInput) { btnInput.style.float = 'none'; btnInput.style.display = 'inline-block'; }
         }
     });
 
