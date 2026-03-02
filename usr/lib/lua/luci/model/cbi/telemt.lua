@@ -1,6 +1,6 @@
 -- ==============================================================================
 -- Telemt CBI Model (Configuration Binding Interface)
--- Version: 3.1.4-15 (Epoch 1) - LOGREAD 3.1.3 RESTORED, DIAGNOSTICS DASHBOARD
+-- Version: 3.1.4-16 (Epoch 1) - EXACT 3.1.3 LOGS & RESET TO DEFAULTS
 -- ==============================================================================
 
 local sys = require "luci.sys"
@@ -60,7 +60,7 @@ if is_post and http.formvalue("auto_pause_user") then
 end
 
 if is_post and http.formvalue("reset_config") == "1" then
-    sys.call("logger -t telemt 'WebUI: FACTORY RESET ALL SETTINGS'")
+    sys.call("logger -t telemt 'WebUI: RESET TO DEFAULTS'")
     local default_uci = "config telemt 'general'\n\toption enabled '0'\n\toption mode 'tls'\n\toption domain 'google.com'\n\toption port '4443'\n\toption metrics_port '9091'\n\toption metrics_allow_lo '1'\n\toption metrics_allow_lan '1'\n\toption log_level 'normal'\n"
     local f = io.open("/etc/config/telemt", "w")
     if f then f:write(default_uci); f:close() end
@@ -127,12 +127,14 @@ if http.formvalue("get_scanners") == "1" then
 end
 
 if http.formvalue("get_log") == "1" then
-    -- СТРОГОЕ ВОЗВРАЩЕНИЕ К ЛОГИКЕ ИЗ 3.1.3
+    -- Строго логика из 3.1.3: BusyBox logread с ключом -e фильтрует мгновенно
+    http.prepare_content("text/plain")
     local cmd = "logread -e 'telemt' | tail -n 50 2>/dev/null"
     if has_cmd("timeout") then cmd = "timeout 2 " .. cmd end
-    local log_data = sys.exec(cmd); if not log_data or log_data:gsub("%s+", "") == "" then log_data = "No logs found." end
-    http.prepare_content("text/plain")
-    pcall(function() http.write(log_data:gsub("\27%[[%d;]*m", "")) end)
+    local log_data = sys.exec(cmd)
+    if not log_data or log_data:gsub("%s+", "") == "" then log_data = "No logs found." end
+    log_data = log_data:gsub("\27%[[%d;]*m", "")
+    pcall(function() http.write(log_data) end)
     end_ajax(); return
 end
 
@@ -205,7 +207,7 @@ if not is_ajax then
     else bin_info = string.format("<small style='opacity: 0.6;'>%s (v%s)</small>", bin_path, (read_file("/var/etc/telemt.version"):gsub("%s+", "")) == "" and "unknown" or (read_file("/var/etc/telemt.version"):gsub("%s+", ""))) end
 end
 
-m = Map("telemt", "Telegram Proxy (MTProto)", [[Multi-user proxy server based on <a href="https://github.com/telemt/telemt" target="_blank" style="text-decoration:none; color:inherit; font-weight:bold; border-bottom: 1px dotted currentColor;">telemt</a>.<br><b>LuCI App Version: <a href="https://github.com/Medvedolog/luci-app-telemt" target="_blank" style="text-decoration:none; color:inherit; border-bottom: 1px dotted currentColor;">3.1.4-15</a></b> | <span style='color:#d35400; font-weight:bold;'>Requires telemt v3.0.15+</span>]])
+m = Map("telemt", "Telegram Proxy (MTProto)", [[Multi-user proxy server based on <a href="https://github.com/telemt/telemt" target="_blank" style="text-decoration:none; color:inherit; font-weight:bold; border-bottom: 1px dotted currentColor;">telemt</a>.<br><b>LuCI App Version: <a href="https://github.com/Medvedolog/luci-app-telemt" target="_blank" style="text-decoration:none; color:inherit; border-bottom: 1px dotted currentColor;">3.1.4-16</a></b> | <span style='color:#d35400; font-weight:bold;'>Requires telemt v3.0.15+</span>]])
 m.on_commit = function(self) sys.call("logger -t telemt 'WebUI: Config saved. Dumping stats before procd reload...'; /etc/init.d/telemt run_save_stats 2>/dev/null") end
 
 s = m:section(NamedSection, "general", "telemt")
@@ -371,7 +373,7 @@ lv.default = [[
     <div style="font-weight:bold; font-size:1.05em; color:var(--text-color, #555);">Diagnostics & Maintenance</div>
     <div style="display:flex; gap:10px; flex-wrap:wrap;">
         <input type="button" class="cbi-button cbi-button-action" id="btn_export_config" value="Export Active Config" style="background:#4a90e2; color:#fff; border:1px solid #357abd;" />
-        <input type="button" class="cbi-button cbi-button-remove" id="btn_reset_config" value="Factory Reset" />
+        <input type="button" class="cbi-button cbi-button-remove" id="btn_reset_config" value="Reset to defaults" />
     </div>
 </div>
 <div style="width:100%; box-sizing:border-box; height:500px; font-family:monospace; font-size:12px; padding:12px; background: #1e1e1e; color: #d4d4d4; border: 1px solid #333; border-radius: 4px; overflow-y:auto; overflow-x:auto; white-space:pre;" id="telemt_log_container">Click a button below to load data.</div>
@@ -401,7 +403,7 @@ setTimeout(function(){
     });
     
     document.getElementById('btn_reset_config').addEventListener('click', function() {
-        if(confirm('Are you sure you want to FACTORY RESET ALL Telemt settings? This will completely erase all users, cascades, and custom settings!')) {
+        if(confirm('Are you sure you want to RESET ALL Telemt settings to defaults? This will completely erase all users, cascades, and custom settings!')) {
             var fd = new FormData(); fd.append('reset_config', '1');
             var tok = null; var tn = document.querySelector('input[name="token"]');
             if (tn) tok = tn.value; else if (typeof L !== 'undefined' && L.env) tok = L.env.token || L.env.requesttoken || null;
