@@ -1,6 +1,6 @@
 -- ==============================================================================
 -- Telemt CBI Model (Configuration Binding Interface)
--- Version: 3.1.4 (Epoch 1: Tabs, Upstreams, Smart Dashboard) - BUGFIX 2
+-- Version: 3.1.4 (Epoch 1) - GOLDEN BUGFIX (Ucode-Safe & OW24-Native)
 -- ==============================================================================
 
 local sys = require "luci.sys"
@@ -28,43 +28,48 @@ local safe_url = current_url:gsub('"', '\\"'):gsub('<', '&lt;'):gsub('>', '&gt;'
 local function tip(txt) return string.format([[<span class="telemt-tip" title="%s">(?)</span>]], txt:gsub('"', '&quot;')) end
 
 -- ==============================================================================
--- AJAX DISPATCHER (Ucode-safe exit pattern)
+-- AJAX DISPATCHER (100% Ucode 444-Panic Proof)
 -- ==============================================================================
 local is_post = (http.getenv("REQUEST_METHOD") == "POST")
 
-local function exit_cleanly()
+local function json_reply(data, content_type)
+    http.prepare_content(content_type or "text/plain")
+    http.write(data)
     if dsp.context then dsp.context.rendered = true end
-    local dummy = Map("telemt", "")
-    function dummy.render() end; function dummy.parse() end
-    return dummy
+    local m = Map("telemt", ""); function m.render() end; function m.parse() end; return m
+end
+
+local function clean_redirect(url)
+    http.header("Location", url); http.status(302, "Found")
+    if dsp.context then dsp.context.rendered = true end
+    local m = Map("telemt", ""); function m.render() end; function m.parse() end; return m
 end
 
 if is_post and http.formvalue("log_ui_event") == "1" then
     local msg = http.formvalue("msg")
     if msg then sys.call(string.format("logger -t telemt %q", "WebUI: " .. msg:gsub("[%c]", " "):gsub("[^A-Za-z0-9 _.%-]", ""):sub(1, 128))) end
-    http.prepare_content("text/plain"); http.write("ok"); return exit_cleanly()
+    return json_reply("ok")
 end
 
-if is_post and http.formvalue("reset_stats") == "1" then sys.call("logger -t telemt 'WebUI: Executed manual Reset Traffic Stats'; rm -f /tmp/telemt_stats.txt"); http.redirect(current_url); return exit_cleanly() end
-if is_post and http.formvalue("start") == "1" then sys.call("logger -t telemt 'WebUI: Manual START service requested'; /etc/init.d/telemt start"); http.redirect(current_url); return exit_cleanly() end
-if is_post and http.formvalue("stop") == "1" then sys.call("logger -t telemt 'WebUI: Manual STOP service requested'; /etc/init.d/telemt run_save_stats; /etc/init.d/telemt stop; sleep 1; pidof telemt >/dev/null && killall -9 telemt 2>/dev/null"); http.redirect(current_url); return exit_cleanly() end
-if is_post and http.formvalue("restart") == "1" then sys.call("logger -t telemt 'WebUI: Manual RESTART service requested'; /etc/init.d/telemt run_save_stats; /etc/init.d/telemt stop; sleep 1; pidof telemt >/dev/null && killall -9 telemt 2>/dev/null; /etc/init.d/telemt start"); http.redirect(current_url); return exit_cleanly() end
+if is_post and http.formvalue("reset_stats") == "1" then sys.call("logger -t telemt 'WebUI: Executed manual Reset Traffic Stats'; rm -f /tmp/telemt_stats.txt"); return clean_redirect(current_url) end
+if is_post and http.formvalue("start") == "1" then sys.call("logger -t telemt 'WebUI: Manual START service requested'; /etc/init.d/telemt start"); return clean_redirect(current_url) end
+if is_post and http.formvalue("stop") == "1" then sys.call("logger -t telemt 'WebUI: Manual STOP service requested'; /etc/init.d/telemt run_save_stats; /etc/init.d/telemt stop; sleep 1; pidof telemt >/dev/null && killall -9 telemt 2>/dev/null"); return clean_redirect(current_url) end
+if is_post and http.formvalue("restart") == "1" then sys.call("logger -t telemt 'WebUI: Manual RESTART service requested'; /etc/init.d/telemt run_save_stats; /etc/init.d/telemt stop; sleep 1; pidof telemt >/dev/null && killall -9 telemt 2>/dev/null; /etc/init.d/telemt start"); return clean_redirect(current_url) end
 
 local is_ajax = (http.formvalue("get_metrics") or http.formvalue("get_fw_status") or http.formvalue("get_log") or http.formvalue("get_scanners") or http.formvalue("get_wan_ip") or http.formvalue("get_qr"))
 
 if http.formvalue("get_fw_status") == "1" then
     local afw = uci_cursor:get("telemt", "general", "auto_fw") or "0"
     local port = tonumber(uci_cursor:get("telemt", "general", "port")) or 4443
-    http.prepare_content("text/plain")
     local cmd = string.format("/bin/sh -c \"iptables-save 2>/dev/null | grep -qiE 'Allow-Telemt-Magic|dport.*%d.*accept' || nft list ruleset 2>/dev/null | grep -qiE 'Allow-Telemt-Magic|dport.*%d.*accept'\"", port, port)
     local is_physically_open = (sys.call(cmd) == 0)
     local is_procd_open = (sys.exec("ubus call service list '{\"name\":\"telemt\"}' 2>/dev/null"):match("Allow%-Telemt%-Magic") ~= nil)
     local is_running = (sys.call("pidof telemt >/dev/null 2>&1") == 0)
-    local status_msg, tip_msg = "<span style='color:red; font-weight:bold'>CLOSED</span>", "(Port not found in FW rules. Consider adding manually)"
-    if is_physically_open then status_msg = "<span style='color:green; font-weight:bold'>OPEN (OK)</span>"; tip_msg = (afw == "0") and "(Auto-FW disabled, but port is open in rules)" or ""
-    elseif is_procd_open and is_running then status_msg = "<span style='color:green; font-weight:bold'>OPEN (OK)</span>"; tip_msg = "(Not visible in FW rules. Manual port opening recommended)" end
-    if not is_running then status_msg = "<span style='color:#d9534f; font-weight:bold'>SERVICE STOPPED</span> <span style='color:#888'>|</span> " .. status_msg end
-    http.write(status_msg .. (tip_msg ~= "" and " <span style='color:#888; font-size:0.85em; margin-left:5px;'>" .. tip_msg .. "</span>" or "")); return exit_cleanly()
+    local status_msg, tip_msg = "<span style='color:red; font-weight:bold'>CLOSED</span>", "(Port not found in rules)"
+    if is_physically_open then status_msg = "<span style='color:green; font-weight:bold'>OPEN (OK)</span>"; tip_msg = (afw == "0") and "(Auto-FW off, but port is open)" or ""
+    elseif is_procd_open and is_running then status_msg = "<span style='color:green; font-weight:bold'>OPEN (OK)</span>"; tip_msg = "(Visible via ubus API)" end
+    if not is_running then return json_reply("<span style='color:#d9534f; font-weight:bold'>SERVICE STOPPED</span>") end
+    return json_reply(status_msg .. (tip_msg ~= "" and " <span style='color:#888; font-size:0.85em; margin-left:5px;'>" .. tip_msg .. "</span>" or ""))
 end
 
 if http.formvalue("get_metrics") == "1" then
@@ -80,7 +85,7 @@ if http.formvalue("get_metrics") == "1" then
         for line in f:lines() do local u, tx, rx = line:match("^(%S+) (%S+) (%S+)$"); if u then metrics = metrics .. string.format("telemt_accumulated_tx{user=\"%s\"} %s\ntelemt_accumulated_rx{user=\"%s\"} %s\n", u, tx, u, rx) end end
         f:close()
     end
-    http.prepare_content("text/plain"); http.write(metrics); return exit_cleanly()
+    return json_reply(metrics)
 end
 
 if http.formvalue("get_scanners") == "1" then
@@ -88,30 +93,30 @@ if http.formvalue("get_scanners") == "1" then
     local fetch_cmd = (fetch_bin == "wget") and "wget -q --timeout=3 -O -" or "uclient-fetch -q --timeout=3 -O -"
     local res = sys.exec(string.format("%s 'http://127.0.0.1:%d/beobachten' 2>/dev/null", fetch_cmd, m_port))
     if not res or res:gsub("%s+", "") == "" then res = "No active scanners detected or proxy is offline." end
-    http.prepare_content("text/plain"); http.write(res); return exit_cleanly()
+    return json_reply(res)
 end
 
 if http.formvalue("get_log") == "1" then
     local cmd = "logread -e 'telemt' | tail -n 50 2>/dev/null"
     if has_cmd("timeout") then cmd = "timeout 2 " .. cmd end
     local log_data = sys.exec(cmd); if not log_data or log_data:gsub("%s+", "") == "" then log_data = "No logs found." end
-    http.prepare_content("text/plain"); http.write(log_data:gsub("\27%[[%d;]*m", "")); return exit_cleanly()
+    return json_reply(log_data:gsub("\27%[[%d;]*m", ""))
 end
 
 if http.formvalue("get_wan_ip") == "1" then
     local fetch_cmd = (fetch_bin == "wget") and "wget -q --timeout=3 -O -" or "uclient-fetch -q --timeout=3 -O -"
     local ip = (sys.exec(fetch_cmd .. " https://ipv4.internet.yandex.net/api/v0/ip 2>/dev/null") or ""):gsub("%s+", ""):gsub("\"", "")
     if not ip:match("^%d+%.%d+%.%d+%.%d+$") then ip = (sys.exec(fetch_cmd .. " https://checkip.amazonaws.com 2>/dev/null") or ""):gsub("%s+", "") end
-    http.prepare_content("text/plain"); http.write(ip:match("^%d+%.%d+%.%d+%.%d+$") and ip or "0.0.0.0"); return exit_cleanly()
+    return json_reply(ip:match("^%d+%.%d+%.%d+%.%d+$") and ip or "0.0.0.0")
 end
 
 if http.formvalue("get_qr") == "1" then
     local link = http.formvalue("link")
-    if not link or link == "" or not link:match("^tg://proxy%?[a-zA-Z0-9=%%&_.-]+$") then http.prepare_content("text/plain"); http.write("error: invalid_link"); return exit_cleanly() end
-    if not has_cmd("qrencode") then http.prepare_content("text/plain"); http.write("error: qrencode_missing"); return exit_cleanly() end
-    http.prepare_content("image/svg+xml"); local cmd = string.format("qrencode -t SVG -s 4 -m 1 -o - %q 2>/dev/null", link)
+    if not link or link == "" or not link:match("^tg://proxy%?[a-zA-Z0-9=%%&_.-]+$") then return json_reply("error: invalid_link") end
+    if not has_cmd("qrencode") then return json_reply("error: qrencode_missing") end
+    local cmd = string.format("qrencode -t SVG -s 4 -m 1 -o - %q 2>/dev/null", link)
     if has_cmd("timeout") then cmd = "timeout 2 " .. cmd end
-    http.write(sys.exec(cmd)); return exit_cleanly()
+    return json_reply(sys.exec(cmd), "image/svg+xml")
 end
 
 local function norm_secret(s) if not s then return nil end; s = s:match("secret=(%x+)") or s; local hex = s:match("(%x+)"); if not hex then return nil end; local pfx = hex:sub(1,2):lower(); if pfx == "ee" or pfx == "dd" then hex = hex:sub(3) end; if #hex < 32 then return nil end; return hex:sub(1, 32):lower() end
@@ -142,10 +147,10 @@ if is_post and http.formvalue("import_users") == "1" then
             end
             uci_cursor:save("telemt"); uci_cursor:commit("telemt")
             sys.call("logger -t telemt \"WebUI: Successfully imported " .. #valid_users .. " users via CSV.\"")
-            http.redirect(current_url .. (current_url:match("?") and "&" or "?") .. "import_ok=" .. tostring(#valid_users)); return exit_cleanly()
+            return clean_redirect(current_url .. (current_url:match("?") and "&" or "?") .. "import_ok=" .. tostring(#valid_users))
         end
     end
-    http.redirect(current_url); return exit_cleanly()
+    return clean_redirect(current_url)
 end
 
 local clean_csv = "username,secret,max_tcp_conns,max_unique_ips,data_quota,expire_date\n"
@@ -229,17 +234,17 @@ local ll = s:taboption("general", ListValue, "log_level", "Log Level" .. tip("Ve
 
 -- === TAB: UPSTREAMS (CASCADES) ===
 local up_anchor = s:taboption("upstreams", DummyValue, "_up_anchor", ""); up_anchor.rawhtml = true; up_anchor.default = '<div id="upstreams_tab_anchor" style="display:none"></div>'
+local up_master = s:taboption("upstreams", Flag, "enable_upstreams", "Enable All Cascades", "Master switch for Upstream Proxies. Disabling this ignores the list below."); up_master.default = "1"
+
 s_up = m:section(TypedSection, "upstream", "Upstream Proxies (Cascades)", "Chain your outgoing Telegram traffic through other servers (e.g. to bypass ISP DPI).<br><b>Note:</b> If no upstreams are enabled, the proxy will fallback to <b>Direct connection</b>.")
-s_up.addremove = true; s_up.anonymous = true
-local uen = s_up:option(Flag, "enabled", "Enable Upstream")
-uen.default = "1"; uen.rmempty = false
-local ut = s_up:option(ListValue, "type", "Protocol Type")
+s_up.template = "cbi/tblsection"; s_up.addremove = true; s_up.anonymous = true
+local uen = s_up:option(Flag, "enabled", "Active"); uen.default = "1"; uen.rmempty = false
+local ut = s_up:option(ListValue, "type", "Protocol")
 ut:value("direct", "Direct"); ut:value("socks4", "SOCKS4"); ut:value("socks5", "SOCKS5"); ut.default = "socks5"
-local ua = s_up:option(Value, "address", "Address" .. tip("Format: IP:PORT or HOST:PORT"))
-ua:depends("type", "socks4"); ua:depends("type", "socks5"); ua.datatype = "hostport"
-local uu = s_up:option(Value, "username", "Username" .. tip("Optional. For authenticated SOCKS.")); uu:depends("type", "socks5")
-local up = s_up:option(Value, "password", "Password" .. tip("Optional. Password for SOCKS.")); up.password = true; up:depends("type", "socks5")
-local uw = s_up:option(Value, "weight", "Weight" .. tip("Routing priority weight. Default: 10.")); uw.datatype = "uinteger"; uw.default = "10"
+local ua = s_up:option(Value, "address", "Address" .. tip("Format: IP:PORT or HOST:PORT")); ua.datatype = "hostport"
+local uu = s_up:option(Value, "username", "Username"); function uu.validate(self, v) if v and v:match("[^A-Za-z0-9_.-]") then return nil, "Invalid chars" end return v end
+local up = s_up:option(Value, "password", "Password"); up.password = true
+local uw = s_up:option(Value, "weight", "Weight" .. tip("Priority. Default: 10.")); uw.datatype = "uinteger"; uw.default = "10"; uw.placeholder = "10"
 
 -- === TAB: ADVANCED ===
 local hnet = s:taboption("advanced", DummyValue, "_head_net"); hnet.rawhtml = true; hnet.default = "<h3>Network Listeners</h3>"
@@ -257,7 +262,8 @@ s:taboption("advanced", Value, "me_drain_ttl", "ME Drain TTL (sec)" .. tip("Drai
 s:taboption("advanced", Flag, "auto_degradation", "Auto-Degradation" .. tip("Enable auto-degradation from ME to Direct-DC if ME fails. Default: enabled.")):depends("use_middle_proxy", "1")
 s:taboption("advanced", Value, "degradation_min_dc", "Degradation Min DC" .. tip("Minimum unavailable ME DC groups before degrading. Default: 2.")):depends("auto_degradation", "1")
 
-local hadv = s:taboption("advanced", DummyValue, "_head_adv"); hadv.rawhtml = true; hadv.default = "<h3 style='margin-top:20px;'>Additional Options</h3>"
+local hadv = s:taboption("advanced", DummyValue, "_head_adv"); hadv.rawhtml = true
+hadv.default = [[<details id="telemt_adv_opts_details" style="margin-top:20px; padding:10px; background:rgba(128,128,128,0.05); border:1px solid rgba(128,128,128,0.3); border-radius:6px; cursor:pointer;"><summary style="font-weight:bold; font-size:1.05em; outline:none; cursor:pointer;">Additional Options (Click to expand)</summary><p style="font-size:0.85em; opacity:0.8; margin-top:5px; margin-bottom:0;">Extra proxy settings and overrides.</p></details><script>setTimeout(function(){var d = document.getElementById('telemt_adv_opts_details');if(!d) return;var tM = ['desync_all_full', 'mask_proxy_protocol', 'announce_ip', 'ad_tag', 'fake_cert_len', 'tls_full_cert_ttl_secs', 'ignore_time_skew'];tM.forEach(function(n){var el = document.querySelector('.cbi-value[data-name="' + n + '"]') || document.getElementById('cbi-telemt-general-' + n);if(el) { el.style.paddingLeft = '15px'; d.appendChild(el); }});}, 300);</script>]]
 s:taboption("advanced", Flag, "desync_all_full", "Full Crypto-Desync Logs" .. tip("Emit full forensic logs for every event. Default: disabled (false).")).default = "0"
 local mpp = s:taboption("advanced", ListValue, "mask_proxy_protocol", "Mask Proxy Protocol" .. tip("Send PROXY protocol header to mask_host (if behind HAProxy/Nginx).")); mpp:value("0", "0 (Off)"); mpp:value("1", "1 (v1 - Text)"); mpp:value("2", "2 (v2 - Binary)"); mpp.default = "0"
 local ip = s:taboption("advanced", Value, "announce_ip", "Announce Address" .. tip("Optional. Public IP or Domain for tg:// links. Overrides 'External IP' if set.")); ip.datatype = "string"
@@ -284,7 +290,7 @@ local mlink = s:taboption("advanced", DummyValue, "_mlink", "Prometheus Endpoint
 mlink.default = string.format([[<a id="prom_link" href="#" target="_blank" class="telemt-prom-link" style="font-family: monospace; color: #00a000; padding: 4px; background: rgba(0,0,0,0.05); border-radius: 4px; text-decoration: none; border: 1px solid rgba(0,160,0,0.2);">http://&lt;router_ip&gt;:%d/metrics</a><script>setTimeout(function(){ var a = document.getElementById('prom_link'); if(a) { a.href = window.location.protocol + '//' + window.location.hostname + ':%d/metrics'; } }, 500);</script>]], cur_m_port, cur_m_port)
 
 -- === TAB: TELEGRAM BOT ===
-local hbot = s:taboption("bot", DummyValue, "_head_bot", ""); hbot.rawhtml = true; hbot.default = "<h3>Autonomous Telegram Bot (Sidecar)</h3><p style='opacity:0.8; margin-top:5px; margin-bottom:15px;'>Configure the autonomous local bot to monitor Telemt status, fetch stats via Telegram, and send crash alerts directly to your phone.</p>"
+local hbot = s:taboption("bot", DummyValue, "_head_bot", ""); hbot.rawhtml = true; hbot.default = "<div style='margin-bottom:15px;'><h3>Autonomous Telegram Bot (Sidecar)</h3><p style='opacity:0.8; margin-top:5px;'>Configure the autonomous local bot to monitor Telemt status, fetch stats via Telegram, and send crash alerts directly to your phone.</p></div>"
 s:taboption("bot", Flag, "bot_enabled", "Enable Bot Sidecar" .. tip("Start the autonomous monitoring script via procd.")).default = "0"
 local bt = s:taboption("bot", Value, "bot_token", "Bot Token" .. tip("Get it from @BotFather.")); bt.password = true; bt:depends("bot_enabled", "1")
 local bc = s:taboption("bot", Value, "bot_chat_id", "Admin Chat ID" .. tip("Your personal or group Chat ID for alerts.")); bc:depends("bot_enabled", "1")
@@ -303,11 +309,11 @@ s2.create = function(self, section) if not section or not section:match("^[A-Za-
 s2.remove = function(self, section) sys.call(string.format("logger -t telemt 'WebUI: Deleted user -> %s'", section)); return TypedSection.remove(self, section) end
 
 local sec = s2:option(Value, "secret", "Secret (32 hex)" .. tip("Leave empty to auto-generate.")); sec.rmempty = false; sec.datatype = "hexstring"; function sec.validate(self, value) if not value or value:gsub("%s+", "") == "" then value = (sys.exec("cat /proc/sys/kernel/random/uuid") or ""):gsub("%-", ""):gsub("%s+", ""):sub(1,32) end; if #value ~= 32 or not value:match("^[0-9a-fA-F]+$") then return nil, "Secret must be exactly 32 hex chars!" end; return value end
+local u_en = s2:option(Flag, "enabled", "Active" .. tip("Uncheck to manually pause this user.")); u_en.default = "1"; u_en.rmempty = false
 local t_con = s2:option(Value, "max_tcp_conns", "TCP Conns" .. tip("Limit sessions (e.g. 50)")); t_con.datatype = "uinteger"; t_con.placeholder = "unlimited"
 local t_uips = s2:option(Value, "max_unique_ips", "Max IPs" .. tip("Max unique client IPs per user.")); t_uips.datatype = "uinteger"; t_uips.placeholder = "unlimited"
 local t_qta = s2:option(Value, "data_quota", "Quota (GB)" .. tip("E.g. 1.5 or 0.5")); t_qta.datatype = "ufloat"; t_qta.placeholder = "unlimited"
 local t_exp = s2:option(Value, "expire_date", "Expire Date" .. tip("Format: DD.MM.YYYY HH:MM")); t_exp.datatype = "string"; t_exp.placeholder = "DD.MM.YYYY HH:MM"; function t_exp.validate(self, value) if not value then return "" end value = value:match("^%s*(.-)%s*$"); if value == "" or value == "unlimited" then return "" end if not value:match("^%d%d%.%d%d%.%d%d%d%d %d%d:%d%d$") then return nil, "Format: DD.MM.YYYY HH:MM" end return value end
-local u_en = s2:option(Flag, "enabled", "Active" .. tip("Uncheck to manually pause this user.")); u_en.default = "1"; u_en.rmempty = false
 local lst = s2:option(DummyValue, "_stat", "Live Traffic" .. tip("Accumulated usage & sessions")); lst.rawhtml = true
 function lst.cfgvalue(self, section) 
     local q = self.map:get(section, "data_quota") or ""; local e = self.map:get(section, "expire_date") or ""; local en = self.map:get(section, "enabled") or "1"
@@ -321,16 +327,13 @@ m.description = [[
 #cbi-telemt-user .cbi-section-table-descr { display: none !important; width: 0 !important; height: 0 !important; visibility: hidden !important; }
 #cbi-telemt-user .cbi-row-template, #cbi-telemt-user [id*="-template"] { display: none !important; visibility: hidden !important; height: 0 !important; overflow: hidden !important; pointer-events: none !important; }
 
-/* Add User Button */
-html body #cbi-telemt-user .cbi-button-add { color: #00a000 !important; background-color: transparent !important; border: 1px solid #00a000 !important; transition: all 0.2s ease !important; padding: 0 16px !important; height: 32px !important; line-height: 30px !important; border-radius: 4px !important; font-weight: bold !important; }
-html body #cbi-telemt-user .cbi-button-add:hover { background-color: #00a000 !important; color: #ffffff !important; -webkit-text-fill-color: #ffffff !important; }
+/* Add User / Upstream Buttons */
+html body #cbi-telemt-user .cbi-button-add, html body #cbi-telemt-upstream .cbi-button-add { color: #00a000 !important; background-color: transparent !important; border: 1px solid #00a000 !important; transition: all 0.2s ease !important; padding: 0 16px !important; height: 32px !important; line-height: 30px !important; border-radius: 4px !important; font-weight: bold !important; }
+html body #cbi-telemt-user .cbi-button-add:hover, html body #cbi-telemt-upstream .cbi-button-add:hover { background-color: #00a000 !important; color: #ffffff !important; -webkit-text-fill-color: #ffffff !important; }
 
 #cbi-telemt-user .cbi-section-table td:first-child { vertical-align: middle !important; }
-html body #cbi-telemt-user .cbi-section-table .cbi-button-remove:not(.telemt-btn-cross), html body #cbi-telemt-user td.cbi-section-actions .cbi-button-remove:not(.telemt-btn-cross) { color: #d9534f !important; background-color: transparent !important; border: 1px solid #d9534f !important; transition: all 0.2s ease !important; padding: 0 12px !important; height: 30px !important; line-height: 28px !important; font-weight: normal !important; }
-html body #cbi-telemt-user .cbi-section-table .cbi-button-remove:not(.telemt-btn-cross):hover { background-color: #d9534f !important; color: #ffffff !important; -webkit-text-fill-color: #ffffff !important; }
-
-#cbi-telemt-upstream .cbi-section-remove { text-align: left !important; margin-top: 15px !important; }
-#cbi-telemt-upstream .cbi-button-remove { float: none !important; min-width: 100px !important; }
+html body #cbi-telemt-user .cbi-section-table .cbi-button-remove:not(.telemt-btn-cross), html body #cbi-telemt-user td.cbi-section-actions .cbi-button-remove:not(.telemt-btn-cross), html body #cbi-telemt-upstream .cbi-button-remove { color: #d9534f !important; background-color: transparent !important; border: 1px solid #d9534f !important; transition: all 0.2s ease !important; padding: 0 12px !important; height: 30px !important; line-height: 28px !important; font-weight: normal !important; }
+html body #cbi-telemt-user .cbi-section-table .cbi-button-remove:not(.telemt-btn-cross):hover, html body #cbi-telemt-upstream .cbi-button-remove:hover { background-color: #d9534f !important; color: #ffffff !important; -webkit-text-fill-color: #ffffff !important; }
 
 .cbi-value-description { margin: -8px 0 0 0 !important; padding: 0 !important; font-size: 0.85em !important; opacity: 0.8; white-space: normal !important; }
 .telemt-tip { display: inline-block !important; vertical-align: middle !important; white-space: nowrap !important; cursor: help !important; opacity: 0.5 !important; font-size: 0.85em !important; border-bottom: 1px dotted currentColor !important; margin-left: 4px !important; margin-top: -2px !important; }
@@ -356,13 +359,7 @@ html body #cbi-telemt-user .cbi-section-table .cbi-button-remove:not(.telemt-btn
 @media (prefers-color-scheme: dark) {
     .telemt-btn-cross { background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23cccccc' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cline x1='18' y1='6' x2='6' y2='18'/%3E%3Cline x1='6' y1='6' x2='18' y2='18'/%3E%3C/svg%3E") !important; }
     .telemt-btn-cal { background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23cccccc' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='4' width='18' height='18' rx='2' ry='2'/%3E%3Cline x1='16' y1='2' x2='16' y2='6'/%3E%3Cline x1='8' y1='2' x2='8' y2='6'/%3E%3Cline x1='3' y1='10' x2='21' y2='10'/%3E%3C/svg%3E") !important; }
-    .custom-modal-content { background-color: #121212 !important; border-color: #333333 !important; }
-    .custom-modal-content h3, .custom-modal-content p, .custom-modal-content label, .custom-modal-content span { color: #ffffff !important; }
-    #csv_text_area { background-color: #000000 !important; color: #ffffff !important; border-color: #444444 !important; }
 }
-html[data-bs-theme="dark"] .custom-modal-content, html[data-theme="dark"] .custom-modal-content { background-color: #121212 !important; border-color: #333333 !important; }
-html[data-bs-theme="dark"] .custom-modal-content h3, html[data-bs-theme="dark"] .custom-modal-content p, html[data-bs-theme="dark"] .custom-modal-content label, html[data-bs-theme="dark"] .custom-modal-content span, html[data-theme="dark"] .custom-modal-content h3, html[data-theme="dark"] .custom-modal-content p, html[data-theme="dark"] .custom-modal-content label, html[data-theme="dark"] .custom-modal-content span { color: #ffffff !important; }
-html[data-bs-theme="dark"] #csv_text_area, html[data-theme="dark"] #csv_text_area { background-color: #000000 !important; color: #ffffff !important; border-color: #444444 !important; }
 
 #cbi-telemt-user .user-link-out { height: 32px !important; line-height: 32px !important; width: 100%; font-family: monospace; font-size: 11px; background: transparent !important; color: inherit !important; border: 1px solid var(--border-color, rgba(128,128,128,0.5)) !important; box-sizing: border-box; margin: 0; cursor: pointer; }
 .user-link-err { color: #d9534f !important; font-weight: bold; border-color: #d9534f !important; }
@@ -378,7 +375,7 @@ html[data-bs-theme="dark"] #csv_text_area, html[data-theme="dark"] #csv_text_are
 .telemt-conns-bold { font-weight: bold; }
 
 @media screen and (min-width: 769px) {
-    #cbi-telemt-user .cbi-section-table { width: 100% !important; table-layout: auto !important; }
+    #cbi-telemt-user .cbi-section-table, #cbi-telemt-upstream .cbi-section-table { width: 100% !important; table-layout: auto !important; }
     #cbi-telemt-user .cbi-section-table td { padding: 6px 8px !important; white-space: nowrap !important; vertical-align: middle !important; }
     .user-flat-stat, .user-flat-stat > div { flex-wrap: nowrap !important; white-space: nowrap !important; }
     td[data-name="_stat"] { min-width: 180px !important; }
@@ -389,7 +386,7 @@ html[data-bs-theme="dark"] #csv_text_area, html[data-theme="dark"] #csv_text_are
     td[data-name="secret"] .telemt-sec-wrap { min-width: 160px !important; }
     .telemt-dash-btns { display: flex !important; align-items: center !important; gap: 10px !important; flex: 0 0 auto !important; margin-left: auto; }
     .telemt-action-btns { display: flex !important; align-items: center !important; justify-content: center !important; gap: 10px !important; flex: 0 0 auto !important; }
-    .telemt-dash-btns input.cbi-button, .telemt-action-btns input.cbi-button, .telemt-dash-btns button, .telemt-action-btns button { float: none !important; margin: 0 !important; display: inline-block !important; position: static !important; }
+    .telemt-dash-btns input.cbi-button, .telemt-action-btns input.cbi-button { float: none !important; margin: 0 !important; display: inline-block !important; position: static !important; }
     .telemt-dash-top-row { display:flex; justify-content:space-between; align-items:center; padding:12px; background:rgba(0,160,0,0.05); border:1px solid rgba(0,160,0,0.2); border-radius:6px; margin-bottom:15px; flex-wrap:wrap; gap:15px; }
     .telemt-dash-bot-row { display:flex; flex-direction:column; justify-content:center; align-items:center; gap:10px; margin-bottom:15px; text-align:center; width:100%; }
     .telemt-dash-warn { font-size:1em; color:#d35400; font-weight:bold; text-align:center; }
@@ -397,12 +394,12 @@ html[data-bs-theme="dark"] #csv_text_area, html[data-theme="dark"] #csv_text_are
 
 @media screen and (max-width: 768px) {
     #telemt_mirror_ip, input[name*="cbid.telemt.general.external_ip"] { flex: 1 1 100% !important; width: 100% !important; max-width: 100% !important; }
-    #cbi-telemt-user .cbi-section-table .cbi-section-table-row { display: flex !important; flex-direction: column !important; margin-bottom: 15px !important; border: 1px solid var(--border-color, #ddd) !important; padding: 10px !important; border-radius: 6px !important; }
-    #cbi-telemt-user .cbi-section-table td { display: block !important; width: 100% !important; box-sizing: border-box !important; padding: 6px 0 !important; border: none !important; white-space: normal !important; }
-    #cbi-telemt-user .cbi-section-table td[data-title]::before { content: attr(data-title) !important; display: block !important; font-weight: bold !important; margin-bottom: 4px !important; color: var(--text-color, #555) !important; }
+    #cbi-telemt-user .cbi-section-table .cbi-section-table-row, #cbi-telemt-upstream .cbi-section-table .cbi-section-table-row { display: flex !important; flex-direction: column !important; margin-bottom: 15px !important; border: 1px solid var(--border-color, #ddd) !important; padding: 10px !important; border-radius: 6px !important; }
+    #cbi-telemt-user .cbi-section-table td, #cbi-telemt-upstream .cbi-section-table td { display: block !important; width: 100% !important; box-sizing: border-box !important; padding: 6px 0 !important; border: none !important; white-space: normal !important; }
+    #cbi-telemt-user .cbi-section-table td[data-title]::before, #cbi-telemt-upstream .cbi-section-table td[data-title]::before { content: attr(data-title) !important; display: block !important; font-weight: bold !important; margin-bottom: 4px !important; color: var(--text-color, #555) !important; }
     #cbi-telemt-user .cbi-section-actions .cbi-button::before, #cbi-telemt-user td .cbi-button::before { display: none !important; content: none !important; }
     #cbi-telemt-user .cbi-section-actions, #cbi-telemt-user td.cbi-section-actions, #cbi-telemt-user .cbi-section-table td:last-child { display: block !important; visibility: visible !important; opacity: 1 !important; padding: 10px 0 0 0 !important; overflow: visible !important; width: 100% !important; }
-    html body #cbi-telemt-user .cbi-section-actions .cbi-button-remove:not(.telemt-btn-cross), html body #cbi-telemt-user td.cbi-section-actions .cbi-button-remove:not(.telemt-btn-cross) { display: flex !important; width: 100% !important; height: 44px !important; line-height: 44px !important; align-items: center !important; justify-content: center !important; }
+    html body #cbi-telemt-user .cbi-section-actions .cbi-button-remove:not(.telemt-btn-cross), html body #cbi-telemt-user td.cbi-section-actions .cbi-button-remove:not(.telemt-btn-cross), html body #cbi-telemt-upstream .cbi-button-remove { display: flex !important; width: 100% !important; height: 44px !important; line-height: 44px !important; align-items: center !important; justify-content: center !important; }
     .user-flat-stat, .user-flat-stat > div { flex-direction: column; align-items: flex-start; flex-wrap: wrap !important; }
     .telemt-dash-summary { flex-direction: column; align-items: flex-start; }
     .telemt-dash-summary > span { margin-right: 0 !important; margin-bottom: 6px !important; display: block !important; width: 100% !important; white-space: normal !important; }
@@ -417,9 +414,15 @@ html[data-bs-theme="dark"] #csv_text_area, html[data-theme="dark"] #csv_text_are
 
 .qr-modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 2147483647 !important; display: flex; align-items: center; justify-content: center; opacity: 0; pointer-events: none; transition: opacity 0.2s; }
 .qr-modal-overlay.active { opacity: 1; pointer-events: auto; }
-.custom-modal-content { background-color: var(--card-bg-color, #ffffff) !important; color: var(--text-color, #333333) !important; padding: 20px; border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); border: 1px solid var(--border-color, #cccccc) !important; text-align: center; max-width: 450px; width: 90%; }
+.custom-modal-content { background-color: #ffffff !important; color: #333333 !important; padding: 20px; border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); border: 1px solid #cccccc !important; text-align: center; max-width: 450px; width: 90%; }
+.custom-modal-content p, .custom-modal-content h3, .custom-modal-content label, .custom-modal-content span { color: #333333 !important; }
 .custom-modal-content svg { max-width: 100%; height: auto; display: block; margin: 0 auto; }
-#csv_text_area { background-color: var(--background-color, #f9f9f9) !important; color: var(--text-color, #333333) !important; width: 100%; height: 120px; font-family: monospace; font-size: 11px; margin-bottom: 10px; box-sizing: border-box; padding: 5px; resize: vertical; }
+#csv_text_area { background-color: #f5f5f5 !important; color: #000000 !important; width: 100%; height: 120px; font-family: monospace; font-size: 11px; margin-bottom: 10px; box-sizing: border-box; padding: 5px; resize: vertical; border: 1px solid #ccc !important; }
+@media (prefers-color-scheme: dark) {
+    .custom-modal-content { background-color: #1e1e1e !important; color: #dddddd !important; border-color: #444 !important; }
+    .custom-modal-content p, .custom-modal-content h3, .custom-modal-content label, .custom-modal-content span { color: #dddddd !important; }
+    #csv_text_area { background-color: #121212 !important; color: #00ff00 !important; border-color: #555 !important; }
+}
 </style>
 
 <script type="text/javascript">
@@ -493,9 +496,9 @@ function fetchMetrics() {
         
         var sumEl = document.getElementById('telemt_users_summary_inner');
         if (sumEl) {
-            var dpiHtml = globalStatsObj.dpi > 0 ? "<span class='sum-divider'>|</span><span><b style='color:#d9534f;'>🛡️ DPI Probes:</b> <span style='color:#d9534f; font-weight:bold; margin-left:4px;'>" + globalStatsObj.dpi + "</span></span>" : "";
+            var dpiHtml = "<span><b style='color:#555;'>🛡️ DPI Probes:</b> <span style='color:" + (globalStatsObj.dpi > 0 ? "#d9534f" : "#00a000") + "; font-weight:bold; margin-left:4px;'>" + globalStatsObj.dpi + "</span></span>";
             if (txt.trim() === "") { sumEl.innerHTML = "<span style='color:#d9534f; font-weight:bold;'>Status: Offline</span><span class='sum-divider'>|</span><span><b style='color:#555;'>Total DL:</b> <span style='color:#00a000;'>&darr; " + formatMB(totalTx) + "</span></span><span class='sum-divider'>|</span><span><b style='color:#555;'>Total UL:</b> <span style='color:#d35400;'>&uarr; " + formatMB(totalRx) + "</span></span><span class='sum-divider'>|</span><span><b style='color:#555;'>Users Online:</b> <b style='color:#888; margin-left:4px;'>0</b><span style='margin:0 4px;'>/</span>" + totalConfiguredUsers + "</span>"; } 
-            else { sumEl.innerHTML = "<b style='margin-right:6px;'>Uptime:</b><span style='color:#666;'>" + formatUptime(globalStatsObj.uptime) + "</span><span class='sum-divider'>|</span><span><b style='color:#555;'>Total DL:</b> <span style='color:#00a000;'>&darr; " + formatMB(totalTx) + "</span></span><span class='sum-divider'>|</span><span><b style='color:#555;'>Total UL:</b> <span style='color:#d35400;'>&uarr; " + formatMB(totalRx) + "</span></span><span class='sum-divider'>|</span><span><b style='color:#555;'>Bandwidth:</b> <span style='color:#00a000;'>&darr; " + speedDL.toFixed(2) + "</span> <span style='color:#d35400; margin-left:4px;'>&uarr; " + speedUL.toFixed(2) + "</span> <small>Mbps</small></span><span class='sum-divider'>|</span><span><b style='color:#555;'>Users Online:</b> <b style='color:#00a000; margin-left:4px;'>" + usersOnline + "</b><span style='margin:0 4px;'>/</span>" + totalConfiguredUsers + "</span>" + dpiHtml; }
+            else { sumEl.innerHTML = "<b style='margin-right:6px;'>Uptime:</b><span style='color:#666;'>" + formatUptime(globalStatsObj.uptime) + "</span><span class='sum-divider'>|</span><span><b style='color:#555;'>Total DL:</b> <span style='color:#00a000;'>&darr; " + formatMB(totalTx) + "</span></span><span class='sum-divider'>|</span><span><b style='color:#555;'>Total UL:</b> <span style='color:#d35400;'>&uarr; " + formatMB(totalRx) + "</span></span><span class='sum-divider'>|</span><span><b style='color:#555;'>Bandwidth:</b> <span style='color:#00a000;'>&darr; " + speedDL.toFixed(2) + "</span> <span style='color:#d35400; margin-left:4px;'>&uarr; " + speedUL.toFixed(2) + "</span> <small>Mbps</small></span><span class='sum-divider'>|</span><span><b style='color:#555;'>Users Online:</b> <b style='color:#00a000; margin-left:4px;'>" + usersOnline + "</b><span style='margin:0 4px;'>/</span>" + totalConfiguredUsers + "</span><span class='sum-divider'>|</span>" + dpiHtml; }
         }
     }).catch(() => { window._telemtFetching = false; });
 }
@@ -589,6 +592,7 @@ function fixTabIsolation() {
         var upTarget = upAnchor.closest('.cbi-tab') || upAnchor.closest('[data-tab]') || upAnchor.parentNode;
         if (upTarget && upTable.parentNode !== upTarget) { upTarget.appendChild(upTable); }
         upTable.style.display = ''; upTable.hidden = false;
+        var btnAddUp = upTable.querySelector('.cbi-button-add'); if (btnAddUp && btnAddUp.value.indexOf('Add') > -1) btnAddUp.value = 'Add Upstream';
     }
 }
 
@@ -603,23 +607,26 @@ function injectUI() {
     var secretTh = document.querySelector('#cbi-telemt-user th[data-name="secret"]') || document.querySelector('#cbi-telemt-user .cbi-section-table-titles th:first-child') || document.querySelector('#cbi-telemt-user thead th:first-child');
     if (secretTh && !secretTh.dataset.renamed) { var txt = (secretTh.textContent || '').trim().toLowerCase(); if (txt == 'secret' || txt == 'секрет' || txt == 'name' || txt == '') { secretTh.textContent = 'User / Secret'; secretTh.dataset.renamed = "1"; } }
     
-    var btnAdd = document.querySelector('.cbi-button-add'); if (btnAdd && btnAdd.value !== 'Add user') btnAdd.value = 'Add user';
+    var btnAdd = document.querySelector('#cbi-telemt-user .cbi-button-add'); if (btnAdd && btnAdd.value !== 'Add user') btnAdd.value = 'Add user';
     var newNameInp = document.querySelector('.cbi-section-create-name'); if(newNameInp && !newNameInp.dataset.maxInjected) { newNameInp.dataset.maxInjected = "1"; newNameInp.maxLength = 15; newNameInp.placeholder = "a-z, 0-9, _"; }
     
     var ipFlds = []; var m1 = document.querySelector('input[name*="cbid.telemt.general.external_ip"]'); if(m1) ipFlds.push(m1); var m2 = document.getElementById('telemt_mirror_ip'); if(m2) ipFlds.push(m2);
     ipFlds.forEach(function(ipFld) { if(!ipFld.dataset.refBtnInjected && ipFld.type !== "hidden") { ipFld.dataset.refBtnInjected = "1"; if(ipFld.parentNode) { ipFld.parentNode.style.display = 'flex'; ipFld.parentNode.style.alignItems = 'center'; var btn = document.createElement('input'); btn.type = 'button'; btn.className = 'cbi-button cbi-button-neural'; btn.value = 'Get IP'; btn.style.marginLeft = '5px'; btn.style.padding = '0 10px'; btn.style.height = ipFld.offsetHeight > 0 ? ipFld.offsetHeight + 'px' : '32px'; btn.addEventListener('click', function(){ fetchIPViaWget(this); }); ipFld.parentNode.appendChild(btn); } } });
 
-    document.querySelectorAll('.cbi-section-table-row:not([data-injected="1"])').forEach(function(row){
+    document.querySelectorAll('#cbi-telemt-user .cbi-section-table-row:not([data-injected="1"])').forEach(function(row){
         if (isTemplateRow(row)) return;
         var secInp = row.querySelector('input[name*=".secret"]'); var niList = row.querySelectorAll('input[name*="max_tcp_conns"], input[name*="max_unique_ips"], input[name*="data_quota"], input[name*="expire_date"]'); var linkWrap = row.querySelector('.link-wrapper');
         if (!secInp || niList.length === 0 || !linkWrap) return; row.dataset.injected = "1";
         
         var match = secInp.name.match(/cbid\.telemt\.([^.]+)\.secret/); var uName = match ? match[1] : '?';
-        var secretTd = secInp.closest('td');
-        if (secretTd) {
-            var nameDiv = secretTd.querySelector('.telemt-fallback-name');
-            if (!nameDiv) { nameDiv = document.createElement('div'); nameDiv.className = 'telemt-fallback-name telemt-user-col-text'; nameDiv.style.cssText = 'margin-bottom: 6px; font-size: 1.1em; font-family: monospace; display: block; color: #005ce6 !important; font-weight: bold !important;'; secretTd.insertBefore(nameDiv, secretTd.firstChild); }
-            nameDiv.innerText = '[ user: ' + uName + ' ]'; 
+        
+        if (is_owrt25) {
+            var secretTd = secInp.closest('td');
+            if (secretTd) {
+                var nameDiv = secretTd.querySelector('.telemt-fallback-name');
+                if (!nameDiv) { nameDiv = document.createElement('div'); nameDiv.className = 'telemt-fallback-name telemt-user-col-text'; nameDiv.style.cssText = 'margin-bottom: 6px; font-size: 1.1em; font-family: monospace; display: block; color: #005ce6 !important; font-weight: bold !important;'; secretTd.insertBefore(nameDiv, secretTd.firstChild); }
+                nameDiv.innerText = '[ user: ' + uName + ' ]'; 
+            }
         }
         
         if(secInp) {
