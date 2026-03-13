@@ -210,9 +210,8 @@ end
 
 if http.formvalue("get_log") == "1" then
     http.prepare_content("text/plain")
-    -- ANSI STRIP FIX: %a correctly removes ALL CSI codes including cursor movements (\e[K)
-    -- LOGREAD FIX: Certain OpenWrt versions lack egrep, fallback to basic logread -e
-    local log_data = sys.exec("logread -e telemt 2>/dev/null | tail -n 100")
+    -- LOGREAD FIX: Certain OpenWrt versions lack egrep and logread -e, fallback to grep
+    local log_data = sys.exec("logread 2>/dev/null | grep -ia 'telemt' | tail -n 100")
     if not log_data or log_data:gsub("%s+", "") == "" then log_data = "No logs found." end
     pcall(function() http.write(log_data:gsub("\27%[[%d;]*%a", "")) end); end_ajax(); return
 end
@@ -325,18 +324,6 @@ function postAction(action) {
         if(typeof updateFWStatus !== 'undefined') updateFWStatus();
     }).catch(function(err){ console.error("Action error:", err); });
 }
-setTimeout(function(){
-    ['start', 'stop', 'restart'].forEach(function(act) {
-        var btn = document.getElementById('btn_telemt_' + act);
-        if(btn && !btn.dataset.bound) {
-            btn.dataset.bound = "1";
-            btn.addEventListener('click', function(e){
-                e.preventDefault(); e.stopPropagation();
-                logAction('Manual ' + act); postAction(act);
-            });
-        }
-    });
-}, 500);
 </script>]], current_url)
 
 local st_html = string.format([[
@@ -1133,7 +1120,7 @@ function fixTabIsolation() {
             var sumInner = document.createElement('div'); sumInner.id = 'telemt_users_summary_inner'; sumInner.className = 'telemt-dash-summary'; topRow.appendChild(sumInner);
             var btnsTop = document.createElement('div'); btnsTop.className = 'telemt-dash-btns';
             var btnResetStats = document.createElement('input'); btnResetStats.type = 'button'; btnResetStats.className = 'cbi-button cbi-button-remove'; btnResetStats.value = 'Reset Stats'; btnResetStats.title = 'Clear all accumulated user traffic statistics'; btnResetStats.addEventListener('click', function(){ if(confirm('Are you sure you want to completely clear ALL accumulated user traffic statistics?')) { postAction('reset_stats'); } }); btnsTop.appendChild(btnResetStats);
-            var btnExpCsv = document.createElement('input'); btnExpCsv.type = 'button'; btnExpCsv.className = 'cbi-button cbi-button-action'; btnExpCsv.value = 'Export (CSV)'; btnExpCsv.addEventListener('click', doExportCSV); btnsTop.appendChild(btnExpCsv);
+            var btnExpCsv = document.createElement('input'); btnExpCsv.type = 'button'; btnExpCsv.className = 'cbi-button cbi-button-action'; btnExpCsv.value = 'Export Stats'; btnExpCsv.addEventListener('click', doExportCSV); btnsTop.appendChild(btnExpCsv);
             var btnImpCsv = document.createElement('input'); btnImpCsv.type = 'button'; btnImpCsv.className = 'cbi-button cbi-button-apply'; btnImpCsv.value = 'Import (CSV)'; btnImpCsv.addEventListener('click', showImportModal); btnsTop.appendChild(btnImpCsv);
             topRow.appendChild(btnsTop); dash.appendChild(topRow);
             userTarget.insertBefore(dash, userTable);
@@ -1155,6 +1142,7 @@ function isTemplateRow(row) {
 }
 
 function injectUI() {
+    ['start', 'stop', 'restart'].forEach(function(act) { var btn = document.getElementById('btn_telemt_' + act); if(btn && !btn.dataset.bound) { btn.dataset.bound = "1"; btn.addEventListener('click', function(e){ e.preventDefault(); e.stopPropagation(); var sEl = document.getElementById('dash_status'); if (sEl) { sEl.innerText = (act==='stop' ? 'STOPPING...' : 'STARTING...'); sEl.style.color = '#d35400'; } logAction('Manual ' + act); postAction(act); }); } });
     fixTabIsolation();
     scheduleRepack(); 
     
