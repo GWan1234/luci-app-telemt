@@ -168,11 +168,6 @@ if http.formvalue("get_metrics") == "1" then
         -- STARTING STATE FIX: Ensure UI knows daemon is alive but booting
         if prom_str == "" then metrics = metrics .. "# telemt_state=starting\n" else metrics = metrics .. prom_str end
         
-        if ext_rt == "1" then
-            metrics = metrics .. "\n---TELEMT_API_JSON---\n"
-            local api_json = http_get_local("http://127.0.0.1:" .. api_port .. "/v1/stats/minimal/all", 2)
-            metrics = metrics .. ((api_json ~= "" and api_json) or "{}")
-        end
     end
     
     -- READ RACE CONDITION FIX: Atomic copy before parsing accumulated stats
@@ -185,6 +180,12 @@ if http.formvalue("get_metrics") == "1" then
             if u then metrics = metrics .. string.format("telemt_accumulated_tx{user=\"%s\"} %s\ntelemt_accumulated_rx{user=\"%s\"} %s\n", u, tx, u, rx) end
         end
         f:close()
+    end
+    
+    if pid ~= "" and ext_rt == "1" then
+        metrics = metrics .. "\n---TELEMT_API_JSON---\n"
+        local api_json = http_get_local("http://127.0.0.1:" .. api_port .. "/v1/stats/minimal/all", 2)
+        metrics = metrics .. ((api_json ~= "" and api_json) or "{}")
     end
     
     http.prepare_content("text/plain"); pcall(function() http.write(metrics) end); end_ajax(); return
@@ -333,7 +334,7 @@ setTimeout(function(){
 
 local st_html = string.format([[
 <div style="font-family:monospace; background:rgba(128,128,128,0.05); border:1px solid rgba(128,128,128,0.2); border-radius:6px; padding:12px; line-height:1.6;">
-    <div style="margin-bottom:4px;"><b>Service:</b> <span id="dash_status" style="color:#888;font-weight:bold;">PENDING...</span></div>
+    <div style="margin-bottom:4px;"><b>Service:</b> <span id="dash_status" style="color:#888;font-weight:bold;">PENDING...</span> &nbsp;<span id="dash_uptime" style="color:#666; font-size:0.9em;"></span></div>
     <div style="margin-bottom:8px;"><b>Memory :</b> Telemt RSS: <b id="dash_rss" style="color:#00a000;">--</b> &nbsp;|&nbsp; Router Free: <b id="dash_ram" style="color:#555;">--</b></div>
     <div style="padding-top:8px; border-top:1px dashed rgba(128,128,128,0.2);">
         <b>Binary :</b> <span style="color:#555;">%s (v%s)</span> &nbsp;%s
@@ -370,6 +371,8 @@ local myip = s:taboption("general", Value, "external_ip", "External IP / DynDNS"
 myip.datatype = "string"; myip.default = saved_ip; myip.validate = validate_ip_domain
 
 local p = s:taboption("general", Value, "port", "MTProxy Port" .. tip("The port on which the MTProxy server will listen for connections.")); p.datatype = "port"; p.rmempty = false; p.default = "8443"
+local pp = s:taboption("general", Value, "public_port", "Port Override for Links" .. tip("Optional. If your router uses NAT port-mapping (e.g. external 443 → internal 8443), enter the external port here. tg:// links will use this port instead."))
+pp.datatype = "port"; pp.placeholder = "same as MTProxy Port"
 
 local afw = s:taboption("general", Flag, "auto_fw", "Auto-open Port (Magic)" .. tip("Uses procd API to open port in RAM. Rule will not appear in Firewall menu. Closes automatically if proxy stops."))
 afw.default = "0"; afw.description = "<div style='margin-top:5px; padding:8px; background:rgba(128,128,128,0.1); border-left:3px solid #00a000; font-size:0.9em;'><b>Current Status:</b> <span id='fw_status_span' style='color:#888; font-style:italic;'>Checking...</span></div>"
@@ -464,7 +467,9 @@ local tm_a = s:taboption("advanced", Value, "tm_ack", "ACK" .. tip("Client ACK t
 local rw_s = s:taboption("advanced", Value, "replay_window_secs", "Replay Window (sec)" .. tip("Time window for replay attack protection. Default: 1800.")); rw_s.datatype = "uinteger"; rw_s.default = "1800"
 
 local hmet = s:taboption("advanced", DummyValue, "_head_met"); hmet.rawhtml = true; hmet.default = "<h3 style='margin-top:20px;'>Metrics & Control API</h3>"
-s:taboption("advanced", Flag, "extended_runtime_enabled", "Enable Control API & Extended Runtime" .. tip("Unified switch. Required for detailed UI diagnostics, Live Traffic stats, and the autonomous Telegram Bot.")).default = "1"
+local api_chk = s:taboption("advanced", Flag, "extended_runtime_enabled", "Enable Control API & Extended Runtime" .. tip("Unified switch. Required for detailed UI diagnostics, Live Traffic stats, and the autonomous Telegram Bot."))
+api_chk.default = "1"
+api_chk.rmempty = false
 local mport = s:taboption("advanced", Value, "metrics_port", "Prometheus Port" .. tip("Port for internal Prometheus exporter. Default: 9092.")); mport.datatype = "port"; mport.default = "9092"
 local aport = s:taboption("advanced", Value, "api_port", "Control API Port" .. tip("Port for the REST API (v1). Default: 9091.")); aport.datatype = "port"; aport.default = "9091"
 s:taboption("advanced", Flag, "metrics_allow_lo", "Allow Localhost" .. tip("Auto-allow 127.0.0.1 and ::1. Required for Live Traffic stats.")).default = "1"
@@ -774,7 +779,7 @@ function renderHealthGrid(apiData, promText) {
     var promUpActive = upActiveMatch ? upActiveMatch[1] : '0';
     var promUpFails = upFailsMatch ? upFailsMatch[1] : '0';
 
-    var promBadges = '<span class="badge badge-err">DPI Probes: ' + probes + '</span><span class="badge badge-err">Rejected/Scans: ' + scans + '</span>';
+    var promBadges = '<span class="badge badge-err" title="Number of detected Deep Packet Inspection probes">DPI Probes: ' + probes + '</span><span class="badge badge-err" title="Connections rejected or actively scanned by DPI">Rejected/Scans: ' + scans + '</span>';
 
     var parsed = parseApiResponse(apiData);
     var rt = parsed.runtime;
@@ -784,8 +789,8 @@ function renderHealthGrid(apiData, promText) {
     if (!apiOk || !rt) {
         var hasAnyProm = promText.indexOf('telemt_') > -1;
         var apiMsg = hasAnyProm 
-            ? '<span class="badge badge-err">Control API: Offline</span>'
-            : '<span class="badge badge-err">Daemon: No Metrics</span>';
+            ? '<span class="badge badge-gray" title="Control API is disabled or not responding. Prometheus-only metrics are shown.">Graceful Degraded: Prometheus Only</span>'
+            : '<span class="badge badge-err" title="telemt daemon is not returning any metrics!">Daemon: No Metrics</span>';
         
         if(dg) dg.innerHTML = apiMsg + promBadges;
         if(dUp) dUp.innerHTML = '<div style="color:#888; padding:10px;"><b>Detailed tables require Control API.</b><br><br><b>Active Connects:</b> ' + promUpActive + ' | <b>Fails:</b> ' + promUpFails + '</div>';
@@ -794,14 +799,27 @@ function renderHealthGrid(apiData, promText) {
     }
     
     var mode = rt.route_mode || "direct";
-    var meRdy = rt.me_runtime_ready ? '<span class="badge badge-ok">ME: Ready</span>' : '<span class="badge badge-gray">ME: Disabled</span>';
-    var fb = rt.me2dc_fallback_enabled ? '<span class="badge badge-err">Fallback: ON</span>' : '<span class="badge badge-ok">Fallback: OFF</span>';
-    var rroute = rt.reroute_active ? '<span class="badge badge-err">Reroute: ON</span>' : '<span class="badge badge-ok">Reroute: OFF</span>';
-    var acc = rt.accepting_new_connections ? '<span class="badge badge-ok">Accepting</span>' : '<span class="badge badge-err">Rejecting</span>';
+    var meRdy = rt.me_runtime_ready ? '<span class="badge badge-ok" title="Middle-End Proxy is actively communicating with Telegram DCs">ME: Ready</span>' : '<span class="badge badge-gray" title="Middle-End Proxy is not enabled in backend config">ME: Disabled</span>';
+    var _meWr = (st && st.me_writers && Array.isArray(st.me_writers.writers)) ? st.me_writers.writers : [];
+    var _hasDegraded = _meWr.some(function(w){ return w && w.degraded; });
+    var fb = _hasDegraded ? '<span class="badge badge-err" title="ME endpoints failed, traffic is falling back to Direct DC connections!">Fallback: ON</span>' : '<span class="badge badge-ok" title="Routing normally without degradation">Fallback: OFF</span>';
+    var rroute = rt.reroute_active ? '<span class="badge badge-err" title="Traffic is being rerouted due to failures!">Reroute: ON</span>' : '<span class="badge badge-ok" title="No active reroutes">Reroute: OFF</span>';
+    var acc = rt.accepting_new_connections ? '<span class="badge badge-ok" title="Proxy is accepting new client connections">Accepting</span>' : '<span class="badge badge-err" title="Proxy is rejecting new connections!">Rejecting</span>';
     
-    if(dg) dg.innerHTML = '<span class="badge ' + (mode==='middle'?'badge-ok':'badge-gray') + '">Mode: ' + escHTML(mode) + '</span>' + meRdy + fb + rroute + acc + promBadges;
+    var dcsCount = 0;
+    if (st && st.dcs && typeof st.dcs === 'object' && Array.isArray(st.dcs.dcs)) { dcsCount = st.dcs.dcs.length; } 
+    else if (st && Array.isArray(st.dcs)) { dcsCount = st.dcs.length; }
+    var dcsBadge = '<span class="badge ' + (dcsCount > 0 ? 'badge-ok' : 'badge-gray') + '" title="Number of Telegram Datacenters currently visible to the backend">DCs: ' + dcsCount + '</span>';
+    
+    var npBadge = '';
+    if (st && Array.isArray(st.network_path) && st.network_path.length > 0) {
+        npBadge = '<span class="badge badge-ok" title="Upstream proxy chain is active">Upstream: ' + st.network_path.length + ' hop(s)</span>';
+    }
+    
+    if(dg) dg.innerHTML = '<span class="badge ' + (mode==='middle'?'badge-ok':'badge-gray') + '" title="Current routing mode. Direct = connect to Telegram DCs directly.">Mode: ' + escHTML(mode) + '</span>' + meRdy + fb + rroute + dcsBadge + npBadge + acc + promBadges;
     
     if (dUp) {
+        var upRendered = false;
         if (st && st.upstreams && Array.isArray(st.upstreams) && st.upstreams.length > 0) {
             var ups = st.upstreams;
             var uHtml = '<div style="display:flex; justify-content:space-between; font-weight:bold; color:#888; border-bottom:1px solid rgba(128,128,128,0.3); padding-bottom:4px; margin-bottom:4px;"><div style="flex:1">Address</div><div style="flex:0 0 60px; text-align:right;">Status</div><div style="flex:0 0 50px; text-align:right;">Fails</div><div style="flex:0 0 60px; text-align:right;">Lat</div></div>';
@@ -810,11 +828,22 @@ function renderHealthGrid(apiData, promText) {
                 var stCol = up.healthy ? '<span style="color:#00a000">OK</span>' : '<span style="color:#d9534f">FAIL</span>';
                 uHtml += '<div style="display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px dashed rgba(128,128,128,0.15);"><div style="flex:1; word-break:break-all; padding-right:5px;">' + escHTML(up.address || '-') + '</div><div style="flex:0 0 60px; text-align:right;">' + stCol + '</div><div style="flex:0 0 50px; text-align:right;">' + (up.fails || 0) + '</div><div style="flex:0 0 60px; text-align:right;">' + (up.effective_latency_ms || 0) + 'ms</div></div>';
             }
-            dUp.innerHTML = uHtml;
-        } else if (parsed.reason === 'source_unavailable') {
+            dUp.innerHTML = uHtml; upRendered = true;
+        }
+        if (!upRendered && st && Array.isArray(st.network_path) && st.network_path.length > 0) {
+            var npHtml = '<div style="display:flex; justify-content:space-between; font-weight:bold; color:#888; border-bottom:1px solid rgba(128,128,128,0.3); padding-bottom:4px; margin-bottom:4px;"><div style="flex:1">Hop</div><div style="flex:0 0 80px; text-align:right;">Type</div><div style="flex:0 0 60px; text-align:right;">Status</div></div>';
+            for (var np=0; np < st.network_path.length; np++) {
+                var hop = st.network_path[np] || {};
+                var hopAddr = hop.address || hop.addr || ('-');
+                var hopType = hop.type || hop.protocol || 'proxy';
+                var hopOk = (hop.healthy !== false) ? '<span style="color:#00a000">OK</span>' : '<span style="color:#d9534f">FAIL</span>';
+                npHtml += '<div style="display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px dashed rgba(128,128,128,0.15);"><div style="flex:1; word-break:break-all;">' + escHTML(String(hopAddr)) + '</div><div style="flex:0 0 80px; text-align:right;">' + escHTML(String(hopType)) + '</div><div style="flex:0 0 60px; text-align:right;">' + hopOk + '</div></div>';
+            }
+            dUp.innerHTML = npHtml + '<div style="margin-top:6px; color:#888; font-size:0.9em;"><b>Active Connects:</b> ' + promUpActive + ' | <b>Fails:</b> ' + promUpFails + '</div>';
+        } else if (!upRendered && parsed.reason === 'source_unavailable') {
             dUp.innerHTML = '<div style="color:#888; padding:10px;">Direct routing active or detailed upstream info unavailable.<br><br><b>Active Connects:</b> ' + promUpActive + ' | <b>Fails:</b> ' + promUpFails + '</div>';
-        } else {
-            dUp.innerHTML = '<div style="color:#888; text-align:center; padding:10px;">Direct routing active</div>';
+        } else if (!upRendered) {
+            dUp.innerHTML = '<div style="color:#888; text-align:center; padding:10px;">Direct routing active<br><br><b>Active Connects:</b> ' + promUpActive + ' | <b>Fails:</b> ' + promUpFails + '</div>';
         }
     }
     
@@ -891,10 +920,13 @@ function fetchMetrics() {
         var startingMatch = promText.match(/# telemt_state=starting/);
         
         var stEl = document.getElementById('dash_status');
+        var utEl = document.getElementById('dash_uptime');
         if (isOffline) {
             setOfflineState();
+            if (utEl) utEl.innerText = '';
         } else if (startingMatch) {
             if (stEl) { stEl.innerText = "STARTING (PID: " + pidMatch[1] + ")"; stEl.style.color = "#d35400"; }
+            if (utEl) utEl.innerText = '';
         } else {
             if (stEl) { stEl.innerText = "RUNNING (PID: " + pidMatch[1] + ")"; stEl.style.color = "#00a000"; }
         }
@@ -923,6 +955,7 @@ function fetchMetrics() {
         }
         
         var totalRx = totalLiveRx + totalAccRx; var totalTx = totalLiveTx + totalAccTx;
+        if (utEl && globalStatsObj.uptime > 0) { utEl.innerText = '| Uptime: ' + formatUptime(globalStatsObj.uptime); }
         var totalConfiguredUsers = allUserRows.length; var usersOnline = 0;
         
         allUserRows.forEach(function(statEl) {
@@ -940,11 +973,12 @@ function fetchMetrics() {
             if (isExpired) { statEl.innerHTML = "<span style='color:#d9534f; font-weight:bold;'>[ EXPIRED ]</span>"; return; }
             if (isOverQuota) { statEl.innerHTML = "<span style='color:#d9534f; font-weight:bold;'>[ QUOTA ]</span>"; return; }
             if (isEn === "0" || (cb && !cb.checked)) { statEl.innerHTML = "<span style='color:#888; font-weight:bold;'>[ PAUSED ]</span>"; return; }
-            if (isOffline) { statEl.innerHTML = "<span style='color:#888;'>Offline (DL: " + formatMB(finalTx) + ")</span>"; return; }
             
             var c_col = stat.conns > 0 ? "#00a000" : "#888"; 
             var dotUser = "<svg width='10' height='10' style='vertical-align:middle;'><circle cx='5' cy='5' r='5' fill='" + c_col + "'/></svg>";
-            statEl.innerHTML = "<div style='display:flex; align-items:center; gap:4px; margin-bottom:2px; flex-wrap:wrap;'><span style='color:#00a000;'>&darr; " + formatMB(finalTx) + "</span> <span class='stat-divider'>/</span> <span style='color:#d35400;'>&uarr; " + formatMB(finalRx) + "</span> <span class='stat-divider'>|</span> <span style='color:" + c_col + ";'>" + dotUser + "&nbsp;" + stat.conns + "&nbsp;<small>conns</small></span></div>";
+            var statHtml = "<div style='display:flex; align-items:center; gap:4px; margin-bottom:2px; flex-wrap:wrap;'><span style='color:#00a000;' title='Total Download (Live + Accumulated)'>&darr; " + formatMB(finalTx) + "</span> <span class='stat-divider'>/</span> <span style='color:#d35400;' title='Total Upload (Live + Accumulated)'>&uarr; " + formatMB(finalRx) + "</span> <span class='stat-divider'>|</span> <span style='color:" + c_col + ";' title='Active TCP Connections'>" + dotUser + "&nbsp;" + stat.conns + "&nbsp;<small>conns</small></span></div>";
+            if (isOffline) { statEl.innerHTML = "<div style='opacity: 0.6; filter: grayscale(1);' title='Daemon is offline, showing accumulated stats'>" + statHtml + "</div>"; return; }
+            statEl.innerHTML = statHtml;
         });
         
         var now = Date.now(); var speedDL = 0, speedUL = 0; 
@@ -982,8 +1016,10 @@ function fetchMetrics() {
 function getEffectiveIP() { var m1 = document.querySelector('input[name*="cbid.telemt.general.external_ip"]'); var m2 = document.getElementById('telemt_mirror_ip'); if (m2 && m2.offsetParent !== null) return m2.value.trim(); if (m1) return m1.value.trim(); return "0.0.0.0"; }
 
 function updateLinks() {
-    var d = document.querySelector('input[name*="domain"]'); var p = document.querySelector('input[name*="port"]'); var modeSelect = document.querySelector('select[name*="mode"]'); var fmtSelect = document.querySelector('select[name*="_link_fmt"]');
+    var d = document.querySelector('input[name*="domain"]'); var p = document.querySelector('input[name*="cbid.telemt.general.port"]'); var modeSelect = document.querySelector('select[name*="mode"]'); var fmtSelect = document.querySelector('select[name*="_link_fmt"]');
+    var ppField = document.querySelector('input[name*="cbid.telemt.general.public_port"]');
     var ip = getEffectiveIP(); var port = p ? p.value.trim() : "8443"; var domain = d ? d.value.trim() : ""; var mode = modeSelect ? modeSelect.value : "tls";
+    if (ppField && ppField.value.trim() !== '') { port = ppField.value.trim(); }
     var effectiveFmt = mode; if (mode === 'all' && fmtSelect) effectiveFmt = fmtSelect.value;
     if(!ip || !port) return;
     var hd = ""; if (domain && (effectiveFmt === 'tls' || effectiveFmt === 'all')) { for(var n=0; n<domain.length; n++) { var hex = domain.charCodeAt(n).toString(16); if (hex.length < 2) hex = "0" + hex; hd += hex; } }
@@ -1113,8 +1149,8 @@ function fixTabIsolation() {
             var btnExpStat = document.createElement('input'); btnExpStat.type = 'button'; btnExpStat.className = 'cbi-button cbi-button-apply'; btnExpStat.value = 'Export Stats'; btnExpStat.title = 'Export traffic usage statistics'; btnExpStat.addEventListener('click', doExportStats); btnsRow1.appendChild(btnExpStat);
             
             var btnsRow2 = document.createElement('div'); btnsRow2.style.display = 'flex'; btnsRow2.style.gap = '10px';
-            var btnExpCsv = document.createElement('input'); btnExpCsv.type = 'button'; btnExpCsv.className = 'cbi-button cbi-button-action'; btnExpCsv.value = 'Export Users'; btnExpCsv.title = 'Export users configuration list'; btnExpCsv.addEventListener('click', doExportCSV); btnsRow2.appendChild(btnExpCsv);
-            var btnImpCsv = document.createElement('input'); btnImpCsv.type = 'button'; btnImpCsv.className = 'cbi-button cbi-button-action'; btnImpCsv.value = 'Import Users'; btnImpCsv.addEventListener('click', showImportModal); btnsRow2.appendChild(btnImpCsv);
+            var btnExpCsv = document.createElement('input'); btnExpCsv.type = 'button'; btnExpCsv.className = 'cbi-button cbi-button-action'; btnExpCsv.value = 'Export Users (CSV)'; btnExpCsv.title = 'Export users configuration list'; btnExpCsv.addEventListener('click', doExportCSV); btnsRow2.appendChild(btnExpCsv);
+            var btnImpCsv = document.createElement('input'); btnImpCsv.type = 'button'; btnImpCsv.className = 'cbi-button cbi-button-action'; btnImpCsv.value = 'Import (CSV)'; btnImpCsv.addEventListener('click', showImportModal); btnsRow2.appendChild(btnImpCsv);
             
             btnsTop.appendChild(btnsRow1); btnsTop.appendChild(btnsRow2);
             topRow.appendChild(btnsTop); dash.appendChild(topRow);
