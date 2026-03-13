@@ -784,7 +784,7 @@ function renderHealthGrid(apiData, promText) {
     if (!apiOk || !rt) {
         var hasAnyProm = promText.indexOf('telemt_') > -1;
         var apiMsg = hasAnyProm 
-            ? '<span class="badge badge-err">Control API: Offline</span><span style="font-size:0.85em; color:#888; display:block; margin-top:5px;">API port не отвечает. Проверьте api_port и extended_runtime_enabled.</span>'
+            ? '<span class="badge badge-err">Control API: Offline</span>'
             : '<span class="badge badge-err">Daemon: No Metrics</span>';
         
         if(dg) dg.innerHTML = apiMsg + promBadges;
@@ -1028,10 +1028,10 @@ function loadLog() {
         var htmlTail = txt.lastIndexOf('<!DOCTYPE');
         if (htmlTail > 0 && htmlTail > txt.length * 0.8) { txt = txt.substring(0, htmlTail).trim(); }
         document.getElementById('telemt_log_container').textContent = txt || 'No logs found.'; 
-        btn.value = 'System Log'; 
+        btn.value = 'Update Log'; 
     }).catch(() => { 
         document.getElementById('telemt_log_container').textContent = 'Error: Could not fetch log. Check LuCI connection.';
-        btn.value = 'System Log (retry)'; 
+        btn.value = 'Update Log (retry)'; 
     }).finally(() => { btn.disabled = false; }); 
 }
 
@@ -1104,11 +1104,19 @@ function fixTabIsolation() {
             var dash = document.createElement('div'); dash.id = 'telemt_users_dashboard_panel';
             var topRow = document.createElement('div'); topRow.className = 'telemt-dash-top-row';
             var sumInner = document.createElement('div'); sumInner.id = 'telemt_users_summary_inner'; sumInner.className = 'telemt-dash-summary'; topRow.appendChild(sumInner);
+            
             var btnsTop = document.createElement('div'); btnsTop.className = 'telemt-dash-btns';
-            var btnResetStats = document.createElement('input'); btnResetStats.type = 'button'; btnResetStats.className = 'cbi-button cbi-button-remove'; btnResetStats.value = 'Reset Stats'; btnResetStats.title = 'Clear all accumulated user traffic statistics'; btnResetStats.addEventListener('click', function(){ if(confirm('Are you sure you want to completely clear ALL accumulated user traffic statistics?')) { postAction('reset_stats'); } }); btnsTop.appendChild(btnResetStats);
-            var btnExpStat = document.createElement('input'); btnExpStat.type = 'button'; btnExpStat.className = 'cbi-button cbi-button-apply'; btnExpStat.value = 'Export Stats'; btnExpStat.title = 'Export traffic usage statistics'; btnExpStat.addEventListener('click', doExportStats); btnsTop.appendChild(btnExpStat);
-            var btnExpCsv = document.createElement('input'); btnExpCsv.type = 'button'; btnExpCsv.className = 'cbi-button cbi-button-action'; btnExpCsv.value = 'Export Users (CSV)'; btnExpCsv.title = 'Export users configuration list'; btnExpCsv.addEventListener('click', doExportCSV); btnsTop.appendChild(btnExpCsv);
-            var btnImpCsv = document.createElement('input'); btnImpCsv.type = 'button'; btnImpCsv.className = 'cbi-button cbi-button-action'; btnImpCsv.value = 'Import (CSV)'; btnImpCsv.addEventListener('click', showImportModal); btnsTop.appendChild(btnImpCsv);
+            btnsTop.style.display = 'flex'; btnsTop.style.flexDirection = 'column'; btnsTop.style.gap = '8px';
+            
+            var btnsRow1 = document.createElement('div'); btnsRow1.style.display = 'flex'; btnsRow1.style.gap = '10px';
+            var btnResetStats = document.createElement('input'); btnResetStats.type = 'button'; btnResetStats.className = 'cbi-button cbi-button-remove'; btnResetStats.value = 'Reset Stats'; btnResetStats.title = 'Clear all accumulated user traffic statistics'; btnResetStats.addEventListener('click', function(){ if(confirm('Are you sure you want to completely clear ALL accumulated user traffic statistics?')) { postAction('reset_stats'); } }); btnsRow1.appendChild(btnResetStats);
+            var btnExpStat = document.createElement('input'); btnExpStat.type = 'button'; btnExpStat.className = 'cbi-button cbi-button-apply'; btnExpStat.value = 'Export Stats'; btnExpStat.title = 'Export traffic usage statistics'; btnExpStat.addEventListener('click', doExportStats); btnsRow1.appendChild(btnExpStat);
+            
+            var btnsRow2 = document.createElement('div'); btnsRow2.style.display = 'flex'; btnsRow2.style.gap = '10px';
+            var btnExpCsv = document.createElement('input'); btnExpCsv.type = 'button'; btnExpCsv.className = 'cbi-button cbi-button-action'; btnExpCsv.value = 'Export Users'; btnExpCsv.title = 'Export users configuration list'; btnExpCsv.addEventListener('click', doExportCSV); btnsRow2.appendChild(btnExpCsv);
+            var btnImpCsv = document.createElement('input'); btnImpCsv.type = 'button'; btnImpCsv.className = 'cbi-button cbi-button-action'; btnImpCsv.value = 'Import Users'; btnImpCsv.addEventListener('click', showImportModal); btnsRow2.appendChild(btnImpCsv);
+            
+            btnsTop.appendChild(btnsRow1); btnsTop.appendChild(btnsRow2);
             topRow.appendChild(btnsTop); dash.appendChild(topRow);
             userTarget.insertBefore(dash, userTable);
         }
