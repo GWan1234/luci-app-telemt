@@ -70,6 +70,45 @@
     </td>
   </tr>
 </table>  <br><br>
+<h2 align="center">📋 Changelog</h2>
+
+<table width="100%">
+  <tr>
+    <th>Version</th>
+    <th>Changes</th>
+  </tr>
+  <tr>
+    <td valign="top"><b>3.3.16-12</b><br><small>2026-03-16</small></td>
+    <td valign="top">
+      <b>Security</b>
+      <ul>
+        <li>Added server-side CSRF token validation (<code>http.formtoken()</code>) for all POST actions — start/stop/restart, reset config, import users</li>
+        <li>Fixed UTF-8 BOM in maintainer scripts (postinst/prerm/postrm) — BOM before shebang breaks apk hooks on OpenWrt 24+</li>
+        <li>Added HTML attribute escaping for user stat fields (<code>data-q</code>, <code>data-e</code>, <code>data-en</code>)</li>
+      </ul>
+      <b>Dashboard</b>
+      <ul>
+        <li>Diagnostics log: strip binary ISO timestamp prefix (<code>2026-03-16T…Z</code>) — logread already prepends date/time</li>
+        <li>Added <code>badge-info</code> (blue) CSS class; Direct DC mode badge is now blue instead of grey</li>
+        <li>Renamed panel <i>Datacenters (ME)</i> → <i>Datacenters</i> (relevant in all routing modes)</li>
+        <li>Direct DC mode: DC panel now shows a meaningful explanation with live connect/fail counters instead of "DC list empty"</li>
+        <li>SOCKS5 upstream status: backend now fetches <code>/v1/stats/upstreams</code> as a separate API call and renders the upstream table</li>
+      </ul>
+      <b>Init / TOML generation</b>
+      <ul>
+        <li>Fixed wrong TOML key: <code>me_warm_standby</code> → <code>middle_proxy_warm_standby</code></li>
+        <li>Removed phantom <code>extended_runtime_enabled</code> key (not in Rust config struct — binary ignored it silently)</li>
+        <li>Added <code>update_every</code> read from UCI and written to TOML <code>[general]</code> section</li>
+        <li>Added absolute paths for ME cache files (<code>proxy_secret_path</code>, <code>proxy_config_v4/v6_cache_path</code>) under <code>/var/etc/telemt/</code></li>
+        <li>Fixed critical TOML ordering: <code>[[server.listeners]]</code> must follow <code>[server.api]</code> — toml-rs v0.5 was attaching the API table to the last listeners entry, causing "No listeners. Exiting."</li>
+        <li>Fixed <code>stop_service</code>: increased grace period, added <code>kill -0</code> guard before SIGKILL</li>
+        <li>Fixed <code>sh: out of range</code> for <code>hardswap</code>/<code>auto_deg</code> when ME is disabled (<code>${var:-0}</code> default)</li>
+      </ul>
+    </td>
+  </tr>
+</table>
+<br>
+
 <h2 align="center">🖼️ Interface Screenshots</h2>
 
 <table width="100%" style="border-collapse: collapse; border: none;">
