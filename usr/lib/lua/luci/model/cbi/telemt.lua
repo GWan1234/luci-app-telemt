@@ -1,6 +1,6 @@
 -- ==============================================================================
 -- Telemt CBI Model (Configuration Binding Interface)
--- Version: 3.3.16-13 (bot-safe PID detection via cmdline)
+-- Version: 3.3.20 (white theme hover fix, memory thresholds, mobile polish, OWrt25 fallback)
 -- ==============================================================================
 
 local sys = require "luci.sys"
@@ -62,9 +62,12 @@ end
 
 local is_owrt25_lua = "false"
 local ow_rel = sys.exec("cat /etc/openwrt_release 2>/dev/null") or ""
-if ow_rel:match("DISTRIB_RELEASE='25") or ow_rel:match('DISTRIB_RELEASE="25') or ow_rel:match("SNAPSHOT") or ow_rel:match("%-rc") then
-    is_owrt25_lua =
-    "true"
+-- Detect OpenWrt 25+ (new LuCI JS DOM, no first column in TypedSection).
+-- Matches: 25.xx.x, 25.xx.x-rcN, 26+, and bare SNAPSHOT (trunk, always ahead of latest release).
+-- Does NOT match: 24.10.x, 24.10.0-rcN, 23.05.x — these have the old DOM with first column intact.
+local _owrt_major = ow_rel:match("DISTRIB_RELEASE=['\"]?(%d+)")
+if (_owrt_major and tonumber(_owrt_major) >= 25) or ow_rel:match("DISTRIB_RELEASE=['\"]?SNAPSHOT") then
+    is_owrt25_lua = "true"
 end
 
 local _unpack = unpack or table.unpack
@@ -398,7 +401,7 @@ if bin_path ~= "" then
 end
 
 m = Map("telemt", "Telegram Proxy (MTProto)",
-    [[Multi-user proxy server based on <a href="https://github.com/telemt/telemt" target="_blank" style="text-decoration:none; color:inherit; font-weight:bold; border-bottom: 1px dotted currentColor;">telemt</a>.<br><b>LuCI App Version: <a href="https://github.com/Medvedolog/luci-app-telemt" target="_blank" style="text-decoration:none; color:inherit; border-bottom: 1px dotted currentColor;">3.3.16</a></b> | <span style='color:#d35400; font-weight:bold;'>Requires telemt v3.3.15+</span>]])
+    [[Multi-user proxy server based on <a href="https://github.com/telemt/telemt" target="_blank" style="text-decoration:none; color:inherit; font-weight:bold; border-bottom: 1px dotted currentColor;">telemt</a>.<br><b>LuCI App Version: <a href="https://github.com/Medvedolog/luci-app-telemt" target="_blank" style="text-decoration:none; color:inherit; border-bottom: 1px dotted currentColor;">3.3.20</a></b> | <span style='color:#d35400; font-weight:bold;'>Requires telemt v3.3.15+</span>]])
 m.on_commit = function(self)
     sys.call(
         "logger -t telemt 'WebUI: Config saved. Dumping stats before procd reload...'; /etc/init.d/telemt run_save_stats 2>/dev/null")
@@ -477,7 +480,7 @@ setTimeout(function(){
 local st_html = string.format([[
 <div style="font-family:monospace; background:rgba(128,128,128,0.05); border:1px solid rgba(128,128,128,0.2); border-radius:6px; padding:12px; line-height:1.6;">
     <div style="margin-bottom:4px;"><b>Service:</b> <span id="dash_status" style="color:#888;font-weight:bold;">PENDING...</span> &nbsp;<span id="dash_uptime" style="color:#666; font-size:0.9em;"></span></div>
-    <div style="margin-bottom:8px;"><b>Memory :</b> Telemt RSS: <b id="dash_rss" style="color:#00a000;">--</b> &nbsp;|&nbsp; Router Free: <b id="dash_ram" style="color:#555;">--</b></div>
+    <div style="margin-bottom:8px;"><b>Memory :</b> Telemt RSS: <b id="dash_rss" style="color:#00a000;">--</b> &nbsp;|&nbsp; RAM Free: <b id="dash_ram" style="color:#555;">--</b></div>
     <div style="padding-top:8px; border-top:1px dashed rgba(128,128,128,0.2);">
         <b>Binary :</b> <span style="color:#555;">%s (v%s)</span> &nbsp;%s
     </div>
@@ -896,9 +899,11 @@ m.description = [[
 html body #cbi-telemt-user .cbi-button-add, html body #cbi-telemt-upstream .cbi-button-add { color: #00a000 !important; background-color: transparent !important; border: 1px solid #00a000 !important; transition: all 0.2s ease !important; padding: 0 16px !important; height: 32px !important; line-height: 30px !important; border-radius: 4px !important; font-weight: bold !important; }
 html body #cbi-telemt-user .cbi-button-add:hover, html body #cbi-telemt-upstream .cbi-button-add:hover,
 html body #cbi-telemt-user input.cbi-button-add:hover, html body #cbi-telemt-upstream input.cbi-button-add:hover,
-html body #cbi-telemt-user input[type="submit"].cbi-button-add:hover, html body #cbi-telemt-upstream input[type="submit"].cbi-button-add:hover {
-    background-color: #00a000 !important; color: #ffffff !important; -webkit-text-fill-color: #ffffff !important;
-    text-shadow: 0 0 0 #ffffff !important; opacity: 1 !important; border-color: #00a000 !important;
+html body #cbi-telemt-user input[type="submit"].cbi-button-add:hover, html body #cbi-telemt-upstream input[type="submit"].cbi-button-add:hover,
+html body #cbi-telemt-user .cbi-button-add:focus, html body #cbi-telemt-upstream .cbi-button-add:focus {
+    background-color: #00a000 !important; background-image: none !important; color: #ffffff !important;
+    -webkit-text-fill-color: #ffffff !important; text-shadow: 0 0 0 #ffffff !important;
+    opacity: 1 !important; border-color: #00a000 !important;
 }
 #cbi-telemt-user .cbi-section-table td:first-child { vertical-align: middle !important; }
 #cbi-telemt-upstream .cbi-section-node-row, #cbi-telemt-upstream > div:not([id$="-template"]) { display: flex !important; flex-direction: column !important; background: rgba(128,128,128,0.03) !important; border: 1px solid var(--border-color, rgba(128,128,128,0.2)) !important; border-radius: 8px !important; padding: 15px !important; margin-bottom: 20px !important; transition: all 0.3s ease; }
@@ -1021,7 +1026,7 @@ function updateCascadesState() {
 function setOfflineState() {
     var sEl = document.getElementById('dash_status'); if(sEl) { sEl.innerText = 'STOPPED'; sEl.style.color = '#d9534f'; }
     var rEl = document.getElementById('dash_rss'); if(rEl) { rEl.innerText = '0 MB'; rEl.style.color = '#888'; }
-    document.querySelectorAll('.user-flat-stat').forEach(function(el) { el.innerHTML = "<span style='color:#d9534f; font-weight:bold;'>[ Offline ]</span>"; });
+    // Don't blank user stats — fetchMetrics renders grayed-out accumulated data per user.
 
     var sumEl = document.getElementById('telemt_users_summary_inner');
     if (sumEl) sumEl.innerHTML = "<span style='color:#d9534f; font-weight:bold;'>Status: Daemon Stopped</span>";
@@ -1086,8 +1091,8 @@ function renderHealthGrid(apiData, promText, upData) {
 
     // DPI badges: gray when counter is 0 (normal), red only when attacks are detected.
     var promBadges =
-        '<span class="badge ' + (probes > 0 ? 'badge-err' : 'badge-gray') + '" title="DPI probes detected (desync events)">DPI Probes: ' + probes + '</span>' +
-        '<span class="badge ' + (scans > 0 ? 'badge-err' : 'badge-gray') + '" title="Bad / scanned connections">Scanned: ' + scans + '</span>';
+        '<span class="badge ' + (probes > 0 ? 'badge-err' : 'badge-gray') + '" title="DPI probe attempts detected since last restart. These are TLS handshakes that failed crypto validation — likely ISP deep packet inspection.">DPI Probes: ' + probes + '</span>' +
+        '<span class="badge ' + (scans > 0 ? 'badge-err' : 'badge-gray') + '" title="Connections rejected as invalid or scanner-like. Includes port scanners, bots, and malformed handshakes.">Scanned: ' + scans + '</span>';
 
     var parsed = parseApiResponse(apiData);
     var rt = parsed.runtime;
@@ -1122,8 +1127,8 @@ function renderHealthGrid(apiData, promText, upData) {
     var mode = rt.route_mode || 'direct';
     var modeLabel = mode === 'middle' ? 'Middle-End (ME)' : 'Direct DC';
     var meRdy = rt.me_runtime_ready
-        ? '<span class="badge badge-ok" title="Middle-End pool is active and connected to Telegram DCs">ME: Ready</span>'
-        : '<span class="badge badge-gray" title="Middle-End Proxy is disabled in config">ME: Off</span>';
+        ? '<span class="badge badge-ok" title="Middle-End proxy pool is active and connected to Telegram DCs. Media/CDN traffic routes through ME.">ME: Ready</span>'
+        : '<span class="badge badge-gray" title="Middle-End Proxy is disabled. Traffic goes directly to Telegram DCs. Enable ME in Advanced if behind NAT.">ME: Off</span>';
     var _meWr = (st && st.me_writers && Array.isArray(st.me_writers.writers)) ? st.me_writers.writers : [];
     var _hasDegraded = _meWr.some(function(w){ return w && w.degraded; });
     // ME writer pool health badge — only meaningful when ME is active
@@ -1135,14 +1140,14 @@ function renderHealthGrid(apiData, promText, upData) {
         meWriterBadge = '<span class="badge ' + _wrCls + '" title="ME writer pool: alive writers / total (' + _wrPct + '%)">Writers: ' + _wrAlive + '/' + _meWr.length + '</span>';
     }
     var fb = _hasDegraded
-        ? '<span class="badge badge-err" title="ME endpoints failed — traffic falling back to Direct DC">Fallback: Active</span>'
-        : '<span class="badge badge-ok" title="No degradation, routing normally">Fallback: Off</span>';
+        ? '<span class="badge badge-err" title="Some ME endpoints failed. Traffic is falling back to Direct DC connections. Check DC table for details.">Fallback: Active</span>'
+        : '<span class="badge badge-ok" title="All ME endpoints healthy. No degradation, traffic routing normally through the ME pool.">Fallback: Off</span>';
     var rroute = rt.reroute_active
-        ? '<span class="badge badge-err" title="Traffic is being rerouted due to failures">Reroute: On</span>'
-        : '<span class="badge badge-ok" title="No active reroutes">Reroute: Off</span>';
+        ? '<span class="badge badge-err" title="Traffic is being actively rerouted to alternative DCs due to failures. Performance may be degraded.">Reroute: On</span>'
+        : '<span class="badge badge-ok" title="No rerouting active. All traffic flows through primary routes.">Reroute: Off</span>';
     var acc = rt.accepting_new_connections
-        ? '<span class="badge badge-ok" title="Proxy is accepting new client connections">Accepting</span>'
-        : '<span class="badge badge-err" title="Proxy is rejecting new connections!">Rejecting!</span>';
+        ? '<span class="badge badge-ok" title="Proxy is accepting new client connections. Clients can connect and use the service normally.">Accepting</span>'
+        : '<span class="badge badge-err" title="Proxy is NOT accepting new connections! Existing clients may work, but new ones will be rejected. Check logs for errors.">Rejecting!</span>';
 
     var dcsCount = 0;
     if (st && st.dcs && typeof st.dcs === 'object' && Array.isArray(st.dcs.dcs)) { dcsCount = st.dcs.dcs.length; }
@@ -1167,8 +1172,8 @@ function renderHealthGrid(apiData, promText, upData) {
     }
 
     if(dg) dg.innerHTML =
-        '<span class="badge ' + (mode === 'middle' ? 'badge-ok' : 'badge-info') + '" title="Current outbound routing mode">Mode: ' + escHTML(modeLabel) + '</span>' +
-        meRdy + meWriterBadge + fb + rroute + dcsBadge + npBadge + acc + promBadges;
+        '<span class="badge ' + (mode === 'middle' ? 'badge-ok' : 'badge-info') + '" title="Current routing mode: how traffic reaches Telegram DCs">Mode: ' + escHTML(modeLabel) + '</span>' +
+        acc + meRdy + meWriterBadge + fb + rroute + dcsBadge + npBadge + promBadges;
 
     if (dUp) {
         var upRendered = false;
@@ -1294,12 +1299,20 @@ function fetchMetrics() {
 
         if (ramMatch) {
             var ramEl = document.getElementById('dash_ram');
-            if (ramEl) ramEl.innerText = (parseInt(ramMatch[1], 10) / 1024).toFixed(1) + ' MB';
+            if (ramEl) {
+                var ramMB = parseInt(ramMatch[1], 10) / 1024;
+                ramEl.innerText = ramMB.toFixed(1) + ' MB';
+                ramEl.style.color = ramMB < 100 ? '#d9534f' : '#555';
+            }
         }
 
         if (rssMatch) {
             var rssEl = document.getElementById('dash_rss');
-            if (rssEl) { rssEl.innerText = (parseInt(rssMatch[1], 10) / 1024).toFixed(1) + ' MB'; rssEl.style.color = '#00a000'; }
+            if (rssEl) {
+                var rssMB = parseInt(rssMatch[1], 10) / 1024;
+                rssEl.innerText = rssMB.toFixed(1) + ' MB';
+                rssEl.style.color = rssMB > 25 ? '#d9534f' : (rssMB > 15 ? '#d35400' : '#00a000');
+            }
         }
 
         var isOffline = !pidMatch;
@@ -1376,7 +1389,7 @@ function fetchMetrics() {
 
             var c_col = stat.conns > 0 ? "#00a000" : "#888";
             var dotUser = "<svg width='10' height='10' style='vertical-align:middle;'><circle cx='5' cy='5' r='5' fill='" + c_col + "'/></svg>";
-            var statHtml = "<div style='display:flex; align-items:center; gap:4px; margin-bottom:2px; flex-wrap:wrap;'><span style='color:#00a000;' title='Total Download (Live + Accumulated)'>&darr; " + formatMB(finalTx) + "</span> <span class='stat-divider'>/</span> <span style='color:#d35400;' title='Total Upload (Live + Accumulated)'>&uarr; " + formatMB(finalRx) + "</span> <span class='stat-divider'>|</span> <span style='color:" + c_col + ";' title='Active TCP Connections'>" + dotUser + "&nbsp;" + stat.conns + "&nbsp;<small>conns</small></span></div>";
+            var statHtml = "<div style='display:flex; align-items:center; gap:4px; margin-bottom:2px; flex-wrap:wrap;'><span style='color:#00a000;' title='Total Download (Live + Accumulated)'>&darr; " + formatMB(finalTx) + "</span> <span class='stat-divider'>/</span> <span style='color:#d35400;' title='Total Upload (Live + Accumulated)'>&uarr; " + formatMB(finalRx) + "</span> <span class='stat-divider'>|</span> <span style='color:" + c_col + ";' title='Active TCP Connections'>" + dotUser + "&nbsp;" + stat.conns + "</span></div>";
             if (isOffline) { statEl.innerHTML = "<div style='opacity: 0.6; filter: grayscale(1);' title='Daemon is offline, showing accumulated stats'>" + statHtml + "</div>"; return; }
             statEl.innerHTML = statHtml;
         });
@@ -1583,10 +1596,10 @@ function injectUI() {
     var btnAdd = document.querySelector('#cbi-telemt-user .cbi-button-add'); if (btnAdd && btnAdd.value !== 'Add user') btnAdd.value = 'Add user';
     if (btnAdd && !document.getElementById('telemt_user_hint')) {
         var hint = document.createElement('div'); hint.id = 'telemt_user_hint';
-        hint.style.cssText = 'color:#d35400; font-weight:bold; font-size:0.85em; margin-top:6px; margin-bottom:4px;';
+        hint.style.cssText = 'color:#d35400; font-weight:bold; font-size:0.85em; margin:8px 0 4px 0; padding:0; display:block; clear:both;';
         hint.textContent = 'At least one user is needed for MTProxy to start.';
         var addRow = btnAdd.closest('.cbi-section-create') || btnAdd.parentNode;
-        if (addRow) addRow.appendChild(hint);
+        if (addRow && addRow.parentNode) addRow.parentNode.insertBefore(hint, addRow.nextSibling);
     }
     var newNameInp = document.querySelector('.cbi-section-create-name'); if(newNameInp && !newNameInp.dataset.maxInjected) { newNameInp.dataset.maxInjected = "1"; newNameInp.maxLength = 15; newNameInp.placeholder = "a-z, 0-9, _"; }
 
@@ -1625,9 +1638,12 @@ function injectUI() {
         var match = secInp.name.match(/cbid\.telemt\.([^.]+)\.secret/); var uName = match ? match[1] : '?';
 
         if (is_owrt25) {
+            // OWrt 25+ / SNAPSHOT: first column is missing (new LuCI JS DOM).
+            // Inject user name above the secret field as a blue label.
             var secretTd = secInp.closest('td');
             if (secretTd) { var nameDiv = secretTd.querySelector('.telemt-fallback-name'); if (!nameDiv) { nameDiv = document.createElement('div'); nameDiv.className = 'telemt-fallback-name telemt-user-col-text'; nameDiv.style.cssText = 'margin-bottom: 6px; font-size: 1.1em; font-family: monospace; display: block; color: #005ce6 !important; font-weight: bold !important;'; secretTd.insertBefore(nameDiv, secretTd.firstChild); } nameDiv.innerText = '[ user: ' + uName + ' ]'; }
         } else {
+            // OWrt 21-24: first column exists natively — just style it blue, never inject.
             var firstCell = row.firstElementChild;
             if (firstCell && !firstCell.contains(secInp)) { var span = firstCell.querySelector('.telemt-user-col-text'); if (!span) { span = document.createElement('span'); span.className = 'telemt-user-col-text'; span.style.cssText = 'color: #005ce6 !important; font-weight: bold !important; margin-bottom: 4px; display: block;'; firstCell.insertBefore(span, firstCell.firstChild); } span.innerText = uName; }
         }
