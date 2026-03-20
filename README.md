@@ -172,3 +172,7 @@ apk add --allow-untrusted luci-app-telemt_3.3.26_noarch.apk
     </td>
   </tr>
 </table>
+<br>
+<p align="center">
+  Создано медведями-вайберами со слезами и горшочком мёда для экосистемы OpenWrt (21.02 — 25.x) 🚀🐻🍯
+</p>
