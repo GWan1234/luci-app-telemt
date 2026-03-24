@@ -26,9 +26,10 @@
         <li><b>Zero-Downtime Hot-Reload:</b> Обновление лимитов и добавление пользователей на лету без перезапуска процесса и разрыва текущих сессий.</li>
         <li><b>Автономный Telegram-бот:</b> Sidecar-демон для управления прокси (создание юзеров, графики нагрузки, алерты) прямо со смартфона.</li>
         <li><b>Умный Firewall и Жизненный цикл:</b> Атомарная генерация TOML, Graceful shutdown (сохранение статистики при рестарте) и авто-открытие портов в RAM.</li>
-        <li><b>Продвинутая Диагностика:</b> Раздельные бейджи маршрутизации (TG PATH / EGRESS), консоль <i>Runtime Info</i> и мониторинг уникальных IP пользователей.</li>
+        <li><b>Продвинутая Диагностика:</b> Раздельные бейджи маршрутизации (TG PATH / EGRESS), консоль <i>Runtime Info</i>, мониторинг уникальных IP пользователей, пинг до DC Telegram через каскады.</li>
+        <li><b>Self-Stealth:</b> Переадресация DPI-сканеров на локальный веб-сервер (uhttpd/nginx) с настоящим сертификатом. Настраивается через <code>mask_host</code> / <code>mask_port</code>.</li>
         <li><b>Управление базой:</b> Экспорт и импорт пользователей списком через CSV-файлы прямо в браузере.</li>
-        <li><b>Маскировка:</b> Нативная поддержка PROXY protocol (для Nginx/HAProxy) и генерация FakeTLS ссылок (QR-коды).</li>
+        <li><b>Маскировка:</b> Нативная поддержка PROXY protocol (для Nginx/HAProxy), Shadowsocks upstream и генерация FakeTLS ссылок (QR-коды).</li>
       </ul>
     </td>
     <td valign="top">
@@ -49,9 +50,10 @@
         <li><b>Zero-Downtime Hot-Reload:</b> Update quotas, add or remove users on the fly without restarting the daemon or dropping active connections.</li>
         <li><b>Autonomous Telegram Bot:</b> A standalone sidecar daemon to manage your proxy, view CPU/RAM load, and receive alerts directly from your phone.</li>
         <li><b>Bulletproof Lifecycle:</b> Atomic TOML generation, graceful shutdowns (zero traffic loss), and smart RAM-based port forwarding.</li>
-        <li><b>Advanced Diagnostics:</b> Independent routing badges (TG PATH / EGRESS), <i>Runtime Info</i> console, and unique IP tracking per user.</li>
+        <li><b>Advanced Diagnostics:</b> Independent routing badges (TG PATH / EGRESS), <i>Runtime Info</i> console, unique IP tracking per user, per-DC latency through cascades.</li>
+        <li><b>Self-Stealth:</b> Redirect DPI scanners to a local web server (uhttpd/nginx) with a real certificate. Configurable via <code>mask_host</code> / <code>mask_port</code>.</li>
         <li><b>Database Management:</b> Bulk export and import users using CSV files directly from the browser.</li>
-        <li><b>Stealth:</b> Native PROXY protocol support (for HAProxy/Nginx) and one-click FakeTLS link/QR-code generation.</li>
+        <li><b>Stealth:</b> Native PROXY protocol support (for HAProxy/Nginx), Shadowsocks upstream, and one-click FakeTLS link/QR-code generation.</li>
       </ul>
     </td>
   </tr>
@@ -66,13 +68,13 @@
 **Для OpenWrt 21.02 — 24.10 (через opkg):**
 ```bash
 opkg update
-opkg install luci-app-telemt_3.3.26_all.ipk
+opkg install luci-app-telemt_3.3.30_all.ipk
 ```
 
 **Для OpenWrt 25.xx и новее (через apk):**
 ```bash
 apk update
-apk add --allow-untrusted luci-app-telemt_3.3.26_noarch.apk
+apk add --allow-untrusted luci-app-telemt_3.3.30_noarch.apk
 ```
 
 <br>
@@ -85,7 +87,26 @@ apk add --allow-untrusted luci-app-telemt_3.3.26_noarch.apk
     <th width="85%">Изменения / Highlights</th>
   </tr>
   <tr>
-    <td valign="top"><b>3.3.26</b><br><small>Latest Stable</small></td>
+    <td valign="top"><b>3.3.30</b><br><small>Latest Release Candidate</small></td>
+    <td valign="top">
+      <b>Self-Stealth, Shadowsocks Upstream, API Integration & Stability Hardening</b><br>
+      <ul>
+        <li><b>Self-Stealth:</b> Новые поля <code>mask_port</code> и <code>mask_host</code> — перенаправление TLS-сканеров на локальный веб-сервер с настоящим сертификатом.</li>
+        <li><b>Shadowsocks upstream:</b> Новый тип в Protocol dropdown с полем SIP002 URL. Требует <code>use_middle_proxy = false</code>.</li>
+        <li><b>API Integration:</b> Per-DC latency в карточке Upstreams, IP-тултипы на вкладке Users, health-бейджи на вкладке Upstreams, Live connections + Users online + Unique IPs.</li>
+        <li><b>Formatted Beobachten:</b> Кнопка Scanner выводит категоризированный список DPI-сканеров с IP и счётчиками.</li>
+        <li><b>Cascade UX:</b> Заголовок показывает протокол (<code>socks5://addr</code>). Health badge виден при свёрнутой карточке. Динамический placeholder для Address.</li>
+        <li><b>PID Stability:</b> Null-byte safe <code>/proc/cmdline</code>, метрики (9092) без PID, frontend state machine (RUNNING / STARTING / PID UNKNOWN / STOPPED).</li>
+        <li><b>Polling fix:</b> <code>stopTimers()</code> убран из раннего выхода — polling не умирает при медленном рендере.</li>
+        <li><b>Lua safety:</b> Regex с <code>[[</code>/<code>]]</code> переписаны через <code>String.fromCharCode()</code>. ES2018 <code>/is</code> → совместимый <code>/i</code>.</li>
+        <li><b>Dark theme:</b> Заменены ~15 hardcoded серых цветов на <code>inherit</code> / <code>opacity</code>.</li>
+        <li><b>IPK packaging:</b> <code>nfpm.yaml</code> ставит <code>/etc/config/telemt</code>. Postinst: fallback-конфиг + полная очистка кеша (21.x–25.x).</li>
+        <li><b>Init.d (зеркально):</b> <code>mask_port</code>/<code>mask_host</code> из UCI → TOML. Shadowsocks <code>url</code> в upstream handler. <code>data_path</code> (gated ≥ 3.3.19).</li>
+      </ul>
+    </td>
+  </tr>
+  <tr>
+    <td valign="top"><b>3.3.26</b></td>
     <td valign="top">
       <b>Глобальная переработка диагностики, поддержка OpenWrt 25+ и укрепление жизненного цикла (Lifecycle)</b><br>
       <ul>
@@ -134,7 +155,7 @@ apk add --allow-untrusted luci-app-telemt_3.3.26_noarch.apk
     </td>
   </tr>
   <tr>
-    <td valign="top"><b>3.1.2</b></td>
+    <td valign="top"><b>3.1.3</b><br><small>Latest pre-LTS release</small></td>
     <td valign="top">
       <b>Поддержка PROXY protocol и Smart STUN Fallback</b><br>
       <ul>
