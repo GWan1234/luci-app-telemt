@@ -200,12 +200,12 @@ apk add --allow-untrusted luci-app-telemt_3.3.30_noarch.apk
   </tr>
   <tr>
     <td width="50%" valign="top" align="center" style="border: none; padding: 10px;">
-      <small><b>Advanced Tuning and ME</b></small><br><br>
-      <img src="https://github.com/user-attachments/assets/9614f4ff-2b08-4e4a-81e4-daa950f41bb5" width="100%" alt="Advanced" style="border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
+      <small><b>Users Management & Hot-Reload</b></small><br><br>
+      <img src="https://github.com/user-attachments/assets/44e4590b-733c-44f9-abc1-806c8dc3ae70" width="100%" alt="Users" style="border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
     </td>
     <td width="50%" valign="top" align="center" style="border: none; padding: 10px;">
-      <small><b>Users Management & Hot-Reload</b></small><br><br>
-      <img src="https://github.com/user-attachments/assets/9078fcab-57cf-497f-8ad2-e1687de7be82" width="100%" alt="Users" style="border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
+      <small><b>Telegram Bot</b></small><br><br>
+      <img src="https://github.com/user-attachments/assets/e0d85fd3-c213-483f-bfd6-1506c75d39c9" width="100%" alt="TG_bot" style="border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
     </td>
   </tr>
   <tr>
@@ -214,11 +214,12 @@ apk add --allow-untrusted luci-app-telemt_3.3.30_noarch.apk
       <img src="https://github.com/user-attachments/assets/5fb6b11d-1f45-461c-9b30-ce8ff83421b0" width="100%" alt="Upstreams" style="border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
     </td>
     <td width="50%" valign="top" align="center" style="border: none; padding: 10px;">
-      <small><b>Telegram Bot</b></small><br><br>
-      <img src="https://github.com/user-attachments/assets/e0d85fd3-c213-483f-bfd6-1506c75d39c9" width="100%" alt="TG_bot" style="border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
+      <small><b>Advanced Tuning and ME</b></small><br><br>
+      <img src="https://github.com/user-attachments/assets/9614f4ff-2b08-4e4a-81e4-daa950f41bb5" width="100%" alt="Advanced" style="border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
     </td>
   </tr>
 </table>
 <br>
 <p align="center">
   Создано медведями-вайберами со слезами и горшочком мёда для экосистемы OpenWrt (21.02 — 25.x) 🚀🐻🍯
+</p>
