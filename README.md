@@ -201,7 +201,7 @@ apk add --allow-untrusted luci-app-telemt_3.3.30_noarch.apk
   <tr>
     <td width="50%" valign="top" align="center" style="border: none; padding: 10px;">
       <small><b>Users Management & Hot-Reload</b></small><br><br>
-      <img src="https://github.com/user-attachments/assets/44e4590b-733c-44f9-abc1-806c8dc3ae70" width="100%" alt="Users" style="border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
+      <img src="https://github.com/user-attachments/assets/4beb9367-013c-47dd-818f-07cea41cda6b" width="100%" alt="Users" style="border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
     </td>
     <td width="50%" valign="top" align="center" style="border: none; padding: 10px;">
       <small><b>Telegram Bot</b></small><br><br>
@@ -221,5 +221,5 @@ apk add --allow-untrusted luci-app-telemt_3.3.30_noarch.apk
 </table>
 <br>
 <p align="center">
+  <br>
   Создано медведями-вайберами со слезами и горшочком мёда для экосистемы OpenWrt (21.02 — 25.x) 🚀🐻🍯
-</p>
