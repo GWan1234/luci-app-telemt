@@ -1,10 +1,12 @@
 -- -- ==============================================================================
 -- Telemt CBI Model (Configuration Binding Interface)
--- Version: 3.3.30
--- Changes from 3.3.29:
---   - Self-Stealth: mask_port and mask_host fields on General tab
---   - Shadowsocks upstream type with SIP002 URL field
---   - All version strings bumped to 3.3.30
+-- Version: 3.4.0
+-- Changes from 3.3.31:
+--   - metrics_listen_addr / api_listen_addr (external metrics/API bind, default loopback)
+--   - client_mss (3.4.18) global TCP MSS clamp in [server]
+--   - mask_dynamic (3.4.18) surfaced as Flag in [censorship]
+--   - Argon/AJAX-theme bootstrap fix (status panel no longer stuck on PENDING)
+--   - All version strings bumped to 3.4.0; requires telemt v3.4.15+
 -- Earlier: Version: 3.3.29
 -- Changes from 3.3.21:
 --   - Dark theme fix: replaced hardcoded color:#555/#888 with inherit/opacity
@@ -185,7 +187,45 @@ if http.formvalue("get_bot_status") == "1" then
     http.prepare_content("application/json"); pcall(function() http.write(status_json) end); end_ajax(); return
 end
 
--- RCE VULNERABILITY FIX: Strict validation of username before shell execution
+-- Direct on-router DC reachability probe.
+-- Independent of the core's metrics: opens a real TCP connection from the
+-- router to each Telegram DC IP:443 and reports which are reachable. This is
+-- the ground truth the metrics API can't give — the core may report an
+-- upstream "healthy" while DCs are actually unreachable through it.
+if http.formvalue("get_dc_probe") == "1" then
+    if not has_cmd("nc") then
+        http.prepare_content("application/json")
+        pcall(function() http.write('{"ok":false,"error":"nc_missing"}') end); end_ajax(); return
+    end
+    -- Canonical Telegram DC IPv4 endpoints (DC1..DC5).
+    local dcs = {
+        ["1"] = "149.154.175.50",
+        ["2"] = "149.154.167.51",
+        ["3"] = "149.154.175.100",
+        ["4"] = "149.154.167.91",
+        ["5"] = "149.154.171.5",
+    }
+    -- One TCP connect per DC, 3s timeout, via busybox nc. Returns "ok"/"fail".
+    -- nc -w applies a connect+io timeout; -z would be ideal but busybox nc
+    -- lacks it, so we connect and immediately close stdin via </dev/null.
+    local function probe(ip)
+        local cmd = string.format(
+            "nc -w 3 %q 443 </dev/null >/dev/null 2>&1 && echo ok || echo fail", ip)
+        local r = (sys.exec(cmd) or ""):gsub("%s+", "")
+        return r == "ok"
+    end
+    local parts = {}
+    local reachable = 0
+    for _, n in ipairs({"1","2","3","4","5"}) do
+        local ok = probe(dcs[n])
+        if ok then reachable = reachable + 1 end
+        parts[#parts+1] = '"' .. n .. '":' .. (ok and "true" or "false")
+    end
+    local json = '{"ok":true,"reachable":' .. reachable ..
+        ',"total":5,"dc":{' .. table.concat(parts, ",") .. '}}'
+    http.prepare_content("application/json"); pcall(function() http.write(json) end); end_ajax(); return
+end
+
 if is_post and http.formvalue("auto_pause_user") then
     local u = http.formvalue("auto_pause_user"); local reason = http.formvalue("reason") or "Limit Exceeded"
     if u and u:match("^[A-Za-z0-9_]+$") then
@@ -200,7 +240,7 @@ end
 if is_post and http.formvalue("reset_config") == "1" then
     sys.call("logger -t telemt 'WebUI: FACTORY RESET ALL SETTINGS'")
     local default_uci =
-    "config telemt 'general'\n\toption enabled '0'\n\toption mode 'tls'\n\toption domain 'google.com'\n\toption port '8443'\n\toption metrics_port '9092'\n\toption api_port '9091'\n\toption extended_runtime_enabled '1'\n\toption metrics_allow_lo '1'\n\toption metrics_allow_lan '1'\n\toption log_level 'normal'\n"
+    "config telemt 'general'\n\toption enabled '0'\n\toption mode 'tls'\n\toption domain 'google.com'\n\toption port '8443'\n\toption metrics_port '9092'\n\toption api_port '9091'\n\toption metrics_listen_addr '127.0.0.1'\n\toption api_listen_addr '127.0.0.1'\n\toption extended_runtime_enabled '1'\n\toption metrics_allow_lo '1'\n\toption metrics_allow_lan '1'\n\toption mask_dynamic '1'\n\toption client_mss ''\n\toption log_level 'normal'\n"
     local f = io.open("/tmp/telemt_reset.tmp", "w")
     if f then
         f:write(default_uci); f:close()
@@ -488,7 +528,7 @@ if bin_path ~= "" then
 
     if bin_ver == "unknown" then
         comp_badge = "<span style='color:#d35400;font-weight:bold;'>[ Unknown Version ]</span>"
-    elseif cmp_ver(bin_ver, "3.3.15") >= 0 then
+    elseif cmp_ver(bin_ver, "3.4.15") >= 0 then
         comp_badge = "<span style='color:#00a000;font-weight:bold;'>[ Compatible ]</span>"
     else
         comp_badge = "<span style='color:#d9534f;font-weight:bold;'>[ Unsupported Version ]</span>"
@@ -496,7 +536,7 @@ if bin_path ~= "" then
 end
 
 m = Map("telemt", "Telegram Proxy (MTProto)",
-    [[Multi-user proxy server based on <a href="https://github.com/telemt/telemt" target="_blank" style="text-decoration:none; color:inherit; font-weight:bold; border-bottom: 1px dotted currentColor;">telemt</a>.<br><b>LuCI App Version: <a href="https://github.com/Medvedolog/luci-app-telemt" target="_blank" style="text-decoration:none; color:inherit; border-bottom: 1px dotted currentColor;">3.3.30</a></b> | <span style='color:#d35400; font-weight:bold;'>Requires telemt v3.3.15+</span>]])
+    [[Multi-user proxy server based on <a href="https://github.com/telemt/telemt" target="_blank" style="text-decoration:none; color:inherit; font-weight:bold; border-bottom: 1px dotted currentColor;">telemt</a>.<br><b>LuCI App Version: <a href="https://github.com/Medvedolog/luci-app-telemt" target="_blank" style="text-decoration:none; color:inherit; border-bottom: 1px dotted currentColor;">3.4.0</a></b> | <span style='color:#d35400; font-weight:bold;'>Requires telemt v3.4.15+</span>]])
 m.on_commit = function(self)
     sys.call(
         "logger -t telemt 'WebUI: Config saved. Dumping stats before procd reload...'; /etc/init.d/telemt run_save_stats 2>/dev/null")
@@ -780,6 +820,22 @@ local mht = s:taboption("advanced", Value, "mask_host",
 local mpp = s:taboption("advanced", ListValue, "mask_proxy_protocol",
     "Mask Proxy Protocol" .. tip("Send PROXY protocol header to mask_host (if behind HAProxy/Nginx).")); mpp:value("0",
     "0 (Off)"); mpp:value("1", "1 (v1 - Text)"); mpp:value("2", "2 (v2 - Binary)"); mpp.default = "0"
+
+-- 3.4.18: mask_dynamic. Binary default is ON. Surfaced so the behavioural
+-- change (fallback masking uses ClientHello SNI when mask_host is empty) is explicit.
+local mdyn = s:taboption("advanced", Flag, "mask_dynamic",
+    "Dynamic SNI Mask Target" .. tip("When ON and Mask Host is empty, fallback masking uses the SNI from the client's ClientHello (must match a configured TLS domain). Turn OFF for the old static behaviour."))
+mdyn.default = "1"
+
+-- 3.4.18: client_mss (global). Helps clients behind TSPU/DPI by clamping MSS.
+-- Empty = kernel default (recommended unless you know you need it).
+local cmss = s:taboption("advanced", ListValue, "client_mss",
+    "Client TCP MSS" .. tip("Clamp the client-facing TCP MSS. 'tspu'/'extreme-low' can help punch through DPI fragmentation. Default (empty) keeps the kernel value."))
+cmss:value("", "Default (kernel)")
+cmss:value("tspu", "tspu (92)")
+cmss:value("extreme-low", "extreme-low (88)")
+cmss:value("2in8", "2in8 (256)")
+cmss.default = ""
 local aip = s:taboption("advanced", Value, "announce_ip",
     "Announce Address" .. tip("Optional. Public IP or Domain for tg:// links. Overrides 'External IP' if set.")); aip.datatype =
 "string"; aip.validate = validate_ip_domain
@@ -822,6 +878,18 @@ local mport = s:taboption("advanced", Value, "metrics_port",
 local aport = s:taboption("advanced", Value, "api_port",
     "Control API Port" .. tip("Port for the REST API (v1). Default: 9091.")); aport.datatype = "port"; aport.default =
 "9091"
+
+local mladdr = s:taboption("advanced", ListValue, "metrics_listen_addr",
+    "Prometheus Bind Address" .. tip("Loopback = 127.0.0.1 only (safe). All interfaces = 0.0.0.0, reachable from LAN/WAN. When exposed, the whitelist below is the only access guard."))
+mladdr:value("127.0.0.1", "Loopback only (127.0.0.1)")
+mladdr:value("0.0.0.0", "All interfaces (0.0.0.0)")
+mladdr.default = "127.0.0.1"
+
+local aladdr = s:taboption("advanced", ListValue, "api_listen_addr",
+    "Control API Bind Address" .. tip("Loopback = 127.0.0.1 only (safe). All interfaces = 0.0.0.0, reachable from LAN/WAN. The API whitelist is shared with the metrics whitelist — exposing the API allows remote user/quota mutation for any whitelisted host. Keep the whitelist tight and never open this port on WAN."))
+aladdr:value("127.0.0.1", "Loopback only (127.0.0.1)")
+aladdr:value("0.0.0.0", "All interfaces (0.0.0.0)")
+aladdr.default = "127.0.0.1"
 s:taboption("advanced", Flag, "metrics_allow_lo", "Allow Localhost" .. tip("Auto-allow 127.0.0.1 and ::1. Required for Live Traffic stats.")).default =
 "1"
 s:taboption("advanced", Flag, "metrics_allow_lan", "Allow LAN Subnet" .. tip("Auto-detect and allow your router's local network.")).default =
@@ -1202,6 +1270,39 @@ var is_owrt25 = ]] .. is_owrt25_lua .. [[;
 
 function logAction(msg, data) { console.log("[Telemt UI] " + msg); }
 function escHTML(s) { return String(s).replace(/[&<>'"]/g, function(c) { return '&#' + c.charCodeAt(0) + ';'; }); }
+
+// On-router DC reachability probe. Calls the server-side ?get_dc_probe action,
+// which TCP-connects from the router to each Telegram DC — ground truth that
+// the metrics API can't provide (core may call an upstream healthy while DCs
+// are unreachable through it).
+function telemtProbeDCs() {
+    var btn = document.getElementById('btn_dc_probe');
+    var out = document.getElementById('dc_probe_result');
+    if (!out) return;
+    if (btn) { btn.disabled = true; btn.value = 'Probing\u2026'; }
+    out.innerHTML = '<span style="opacity:0.7;">Connecting to DC1\u2013DC5 from the router\u2026</span>';
+    var base = lu_current_url.split('#')[0];
+    var sep = base.indexOf('?') >= 0 ? '&' : '?';
+    fetch(base + sep + 'get_dc_probe=1', { method: 'GET' })
+        .then(function(r){ return r.json(); })
+        .then(function(j){
+            if (j && j.ok === false && j.error === 'nc_missing') {
+                out.innerHTML = '<span style="color:#d9534f;">netcat (nc) not available on this router \u2014 cannot probe.</span>'; return;
+            }
+            if (!j || !j.ok) { out.innerHTML = '<span style="color:#d9534f;">Probe failed.</span>'; return; }
+            var cells = [];
+            for (var n=1; n<=5; n++) {
+                var ok = j.dc && j.dc[String(n)];
+                cells.push('<span style="color:' + (ok ? '#00a000' : '#d9534f') + ';">DC' + n + ':' + (ok ? '\u2713' : '\u2717') + '</span>');
+            }
+            var verdict = (j.reachable === 0)
+                ? '<span style="color:#d9534f; font-weight:bold;">No DC reachable directly from router</span>'
+                : '<b>' + j.reachable + '/' + j.total + ' DC reachable</b> from router (direct TCP)';
+            out.innerHTML = verdict + '<br>' + cells.join(' &nbsp; ');
+        })
+        .catch(function(){ out.innerHTML = '<span style="color:#d9534f;">Probe error.</span>'; })
+        .then(function(){ if (btn) { btn.disabled = false; btn.value = 'Probe DCs from router'; } });
+}
 function formatMB(bytes) { if(!bytes || bytes === 0) return '0.00 MB'; var mb = bytes / 1048576; if (mb >= 1024) return (mb / 1024).toFixed(2) + ' GB'; return mb.toFixed(2) + ' MB'; }
 function formatUptime(secs) { if(!secs) return '0s'; var d = Math.floor(secs/86400), h = Math.floor((secs%86400)/3600), m = Math.floor((secs%3600)/60), s = Math.floor(secs%60); var str = ""; if(d>0) str += d+"d "; if(h>0 || d>0) str += h+"h "; str += m+"m "+s+"s"; return str; }
 
@@ -1454,10 +1555,23 @@ function renderHealthGrid(apiData, promText, upData, upqData) {
 
     // TG PATH badge
     var tgPath, tgPathCls;
-    if (rt.me_runtime_ready) { tgPath = 'ME'; tgPathCls = 'badge-ok'; }
-    else if (uciMpEnabled && !rt.me_runtime_ready) { tgPath = 'Fallback'; tgPathCls = 'badge-warn'; }
-    else { tgPath = 'Direct-DC'; tgPathCls = 'badge-info'; }
-    var tgPathBadge = '<span class="badge ' + tgPathCls + '" title="Telegram transport path: how traffic reaches Telegram DCs. ME = Middle-End pool, Direct-DC = TCP to DC, Fallback = ME configured but not ready.">TG Path: ' + tgPath + '</span>';
+    if (rt.me_runtime_ready) {
+        tgPath = 'ME'; tgPathCls = 'badge-ok';
+    } else if (uciMpEnabled && !rt.me_runtime_ready) {
+        tgPath = 'Fallback'; tgPathCls = 'badge-warn';
+    } else {
+        // Transport mode is Direct-DC (TCP to DC, not Middle-End). But that does
+        // NOT mean traffic leaves the router directly: it still goes through any
+        // configured upstream proxies. Only call it "Direct" when egress is
+        // genuinely direct; otherwise name the actual egress so a non-expert
+        // doesn't read "Direct-DC" as "no proxy".
+        if (egress.type === 'Direct') {
+            tgPath = 'Direct'; tgPathCls = 'badge-info';
+        } else {
+            tgPath = 'via ' + egress.type; tgPathCls = 'badge-ok';
+        }
+    }
+    var tgPathBadge = '<span class="badge ' + tgPathCls + '" title="How traffic reaches Telegram DCs. ME = Middle-End pool. Direct = TCP straight from the router (no upstream proxy). via SOCKS5/Mixed = TCP to DC but routed through your upstream proxy/VLESS. Fallback = ME configured but not ready.">TG Path: ' + tgPath + '</span>';
 
     // EGRESS badge
     var egressCls = egress.type === 'Direct' ? 'badge-info' : 'badge-ok';
@@ -1529,15 +1643,34 @@ function renderHealthGrid(apiData, promText, upData, upqData) {
             var uHtml = '<div style="display:flex; justify-content:space-between; font-weight:bold; opacity:0.7; border-bottom:1px solid rgba(128,128,128,0.3); padding-bottom:4px; margin-bottom:4px;"><div style="flex:1">Address</div><div style="flex:0 0 60px; text-align:right;">Status</div><div style="flex:0 0 50px; text-align:right;">Fails</div><div style="flex:0 0 75px; text-align:right;">Lat</div></div>';
             for (var i=0; i<ups.length; i++) {
                 var up = ups[i] || {};
-                var stCol = up.healthy ? '<span style="color:#00a000">OK</span>' : '<span style="color:#d9534f">FAIL</span>';
+                // healthy alone is misleading: the core marks an upstream
+                // healthy as a transport even when no DC is reachable through
+                // it (all dc[].latency_ema_ms null / effective_latency_ms null).
+                // Split into OK (healthy + >=1 reachable DC) vs DEGRADED.
+                var dcArr = Array.isArray(up.dc) ? up.dc : [];
+                var liveDc = 0;
+                for (var dci=0; dci<dcArr.length; dci++) {
+                    if (dcArr[dci] && dcArr[dci].latency_ema_ms != null) liveDc++;
+                }
+                var hasDcData = dcArr.length > 0;
+                var stCol;
+                if (!up.healthy) {
+                    stCol = '<span style="color:#d9534f">FAIL</span>';
+                } else if (hasDcData && liveDc === 0) {
+                    stCol = '<span style="color:#e0a800" title="Transport healthy but no Telegram DC reachable through this route">DEGRADED</span>';
+                } else {
+                    stCol = '<span style="color:#00a000">OK</span>';
+                }
                 var latStr = (up.effective_latency_ms != null) ? parseFloat(up.effective_latency_ms).toFixed(1) + 'ms' : '—';
                 uHtml += '<div style="display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px dashed rgba(128,128,128,0.15);"><div style="flex:1; word-break:break-all; padding-right:5px;">' + escHTML(up.address || '-') + '</div><div style="flex:0 0 60px; text-align:right;">' + stCol + '</div><div style="flex:0 0 50px; text-align:right;">' + (up.fails || 0) + '</div><div style="flex:0 0 75px; text-align:right;">' + latStr + '</div></div>';
-                // Per-DC latency sub-rows from upstream_quality (if available)
+                // Per-DC latency sub-rows: prefer upstream_quality, else the
+                // inline dc[] already present in /v1/stats/upstreams.
                 var qEntry = upqLookup[up.address];
-                if (qEntry && Array.isArray(qEntry.dc) && qEntry.dc.length > 0) {
+                var dcSrc = (qEntry && Array.isArray(qEntry.dc) && qEntry.dc.length > 0) ? qEntry.dc : dcArr;
+                if (Array.isArray(dcSrc) && dcSrc.length > 0) {
                     var dcParts = [];
-                    for (var d=0; d<qEntry.dc.length && d<6; d++) {
-                        var dcR = qEntry.dc[d];
+                    for (var d=0; d<dcSrc.length && d<6; d++) {
+                        var dcR = dcSrc[d];
                         var dcLat = (dcR.latency_ema_ms != null) ? parseFloat(dcR.latency_ema_ms).toFixed(0) + 'ms' : '—';
                         dcParts.push('DC' + dcR.dc + ':' + dcLat);
                     }
@@ -1592,7 +1725,11 @@ function renderHealthGrid(apiData, promText, upData, upqData) {
         } else {
             // Mode B: Direct-DC path (possibly via upstream)
             var pathParts = [];
-            pathParts.push('<b>TG Path:</b> Direct-DC' + (egress.type !== 'Direct' ? ' over ' + egress.type : ''));
+            if (egress.type === 'Direct') {
+                pathParts.push('<b>TG Path:</b> Direct (TCP straight from router, no upstream)');
+            } else {
+                pathParts.push('<b>TG Path:</b> via ' + egress.type + ' upstream <span style="opacity:0.7;">(Direct-DC mode, routed through your proxy/VLESS)</span>');
+            }
             if (egress.total > 0) {
                 pathParts.push('<b>Upstream:</b> ' + egress.ok + '/' + egress.total + ' healthy');
             }
@@ -1600,6 +1737,12 @@ function renderHealthGrid(apiData, promText, upData, upqData) {
             if (uciMpEnabled) {
                 pathParts.push('<span style="color:#d35400;">ME is configured but not ready. Traffic uses Direct-DC as fallback.</span>');
             }
+            pathParts.push('<div style="margin-top:8px; padding-top:8px; border-top:1px dashed rgba(128,128,128,0.3);">' +
+                '<input type="button" id="btn_dc_probe" value="Probe DCs from router" ' +
+                'class="cbi-button cbi-button-action" style="font-size:0.85em;" ' +
+                'onclick="telemtProbeDCs()" />' +
+                '<div id="dc_probe_result" style="margin-top:6px; font-size:0.9em; opacity:0.85;"></div>' +
+                '</div>');
             dDc.innerHTML = '<div style="color:inherit; padding:10px; line-height:1.8;">' + pathParts.join('<br>') + '</div>';
         }
     }
@@ -1655,6 +1798,7 @@ function fetchMetrics() {
         // Users API data: build username -> IP list lookup for tooltips
         var usersApiData = null;
         window._telemtUserIPs = {};
+        window._telemtUserLinks = {};
         if (usrJsonStr !== "" && usrJsonStr !== "{}") {
             try {
                 usersApiData = JSON.parse(usrJsonStr);
@@ -1663,7 +1807,21 @@ function fetchMetrics() {
                         if (u.username && Array.isArray(u.active_unique_ips_list)) {
                             window._telemtUserIPs[u.username] = u.active_unique_ips_list;
                         }
+                        // Cache authoritative links straight from the core. In 3.4.x
+                        // links is { classic:[], secure:[], tls:[], tls_domains:[] }.
+                        // We prefer these over client-side construction so the UI
+                        // shows exactly what the core would emit.
+                        if (u.username && u.links) {
+                            var L = u.links;
+                            var pick = function(arr) { return (Array.isArray(arr) && arr.length > 0) ? arr[0] : null; };
+                            window._telemtUserLinks[u.username] = {
+                                tls: pick(L.tls),
+                                secure: pick(L.secure),
+                                classic: pick(L.classic)
+                            };
+                        }
                     });
+                    if (typeof updateLinks === 'function') { try { updateLinks(); } catch(e){} }
                 }
             } catch(e) { usersApiData = null; }
         }
@@ -1836,7 +1994,26 @@ function updateLinks() {
     var hd = ""; if (domain && (effectiveFmt === 'tls' || effectiveFmt === 'all')) { for(var n=0; n<domain.length; n++) { var hex = domain.charCodeAt(n).toString(16); if (hex.length < 2) hex = "0" + hex; hd += hex; } }
     document.querySelectorAll('#cbi-telemt-user .cbi-section-table-row:not(.cbi-row-template), #cbi-telemt-user tr.cbi-row:not(.cbi-row-template), #cbi-telemt-user div.cbi-row:not(.cbi-row-template)').forEach(function(row) {
         var secInp = row.querySelector('input[name*="secret"]'); var linkOut = row.querySelector('.user-link-out');
-        if(secInp && linkOut) { var val = secInp.value.trim(); if(/^[0-9a-fA-F]{32}$/.test(val)) { var finalSecret = (effectiveFmt === 'tls' || effectiveFmt === 'all') ? "ee" + val + hd : ((effectiveFmt === 'dd') ? "dd" + val : val); linkOut.value = "tg://proxy?server=" + ip + "&port=" + port + "&secret=" + finalSecret; linkOut.classList.remove('user-link-err'); } else { linkOut.value = "Error: 32 hex chars required!"; linkOut.classList.add('user-link-err'); } }
+        if(secInp && linkOut) {
+            // Prefer the authoritative link from /v1/users (matches what the core
+            // emits). Fall back to client-side construction if the API hasn't
+            // provided one yet (e.g. first paint before metrics load).
+            var uMatch = secInp.name.match(/cbid\.telemt\.([^.]+)\.secret/);
+            var uName = uMatch ? uMatch[1] : null;
+            var apiLinks = (uName && window._telemtUserLinks) ? window._telemtUserLinks[uName] : null;
+            var apiLink = null;
+            if (apiLinks) {
+                if (effectiveFmt === 'tls' || effectiveFmt === 'all') apiLink = apiLinks.tls || apiLinks.secure || apiLinks.classic;
+                else if (effectiveFmt === 'dd') apiLink = apiLinks.secure || apiLinks.classic;
+                else apiLink = apiLinks.classic || apiLinks.secure;
+            }
+            if (apiLink) {
+                linkOut.value = apiLink; linkOut.classList.remove('user-link-err');
+            } else {
+                var val = secInp.value.trim();
+                if(/^[0-9a-fA-F]{32}$/.test(val)) { var finalSecret = (effectiveFmt === 'tls' || effectiveFmt === 'all') ? "ee" + val + hd : ((effectiveFmt === 'dd') ? "dd" + val : val); linkOut.value = "tg://proxy?server=" + ip + "&port=" + port + "&secret=" + finalSecret; linkOut.classList.remove('user-link-err'); } else { linkOut.value = "Error: 32 hex chars required!"; linkOut.classList.add('user-link-err'); }
+            }
+        }
     });
     updateCascadesState();
 }
@@ -2299,10 +2476,49 @@ function initTelemt() {
             for (var i = 0; i < mutations.length; i++) { if (mutations[i].target.id === 'cbi-telemt-user' || mutations[i].target.id === 'cbi-telemt-upstream' || (mutations[i].target.closest && mutations[i].target.closest('#cbi-telemt-user'))) { needsUpdate = true; break; } }
             if (needsUpdate) { _injecting = true; injectUI(); updateLinks(); _injecting = false; }
         });
-        domObserver.observe(document.getElementById('maincontent') || document.body, { childList: true, subtree: true });
+        domObserver.observe(document.getElementById('maincontent') || document.querySelector('.cbi-map') || document.body, { childList: true, subtree: true });
     } else { setInterval(function(){ injectUI(); updateLinks(); scheduleRepack(); }, 2500); }
 }
-if (document.readyState === 'loading') { document.addEventListener('DOMContentLoaded', initTelemt); } else { initTelemt(); }
+// Theme-agnostic bootstrap.
+// Default/bootstrap themes do a full page load (DOMContentLoaded fires with the
+// CBI DOM present). AJAX-routing themes (Argon, Material) swap #maincontent via
+// XHR, so this inline script can run BEFORE the CBI map exists — DOMContentLoaded
+// already passed and #cbi-telemt-general isn't there yet. A one-shot initTelemt()
+// then runs against an empty DOM: fetchMetrics() bails, status stays PENDING.
+// Fix: poll for the CBI DOM (bounded) and only fire initTelemt once it appears.
+var _telemtBootstrapped = false;
+function _telemtTryBootstrap() {
+    if (_telemtBootstrapped) return true;
+    // The status panel and the general map are the anchors fetchMetrics needs.
+    if (document.getElementById('dash_status') ||
+        document.getElementById('cbi-telemt-general') ||
+        document.getElementById('cbi-telemt-user')) {
+        _telemtBootstrapped = true;
+        try { initTelemt(); } catch (e) { console.error('[Telemt UI] init failed', e); }
+        return true;
+    }
+    return false;
+}
+(function _telemtBootstrapLoop() {
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', _telemtBootstrapLoop, { once: true });
+        return;
+    }
+    if (_telemtTryBootstrap()) return;
+    // CBI DOM not present yet (AJAX theme still swapping content). Retry on an
+    // interval, and also watch the document for the map being inserted late.
+    var tries = 0;
+    var bootTimer = setInterval(function() {
+        tries++;
+        if (_telemtTryBootstrap() || tries > 100) { clearInterval(bootTimer); }
+    }, 150); // up to ~15s of patience for slow AJAX renders
+    if (typeof window.MutationObserver !== 'undefined') {
+        var bootObs = new MutationObserver(function() {
+            if (_telemtTryBootstrap()) { bootObs.disconnect(); clearInterval(bootTimer); }
+        });
+        bootObs.observe(document.body, { childList: true, subtree: true });
+    }
+})();
 </script>
 ]] .. (m.description or "")
 

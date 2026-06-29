@@ -27,7 +27,7 @@
       <ul><li><b>Сеть:</b> Белый уличный статический или динамический IP адрес
         <li><b>ОС:</b> OpenWrt 21.02 — 25.xx (полная поддержка VDOM и APK-пакетов)</li>
         <li><b>Зависимости:</b> <code>luci-base</code>, <code>luci-compat</code>, <code>ca-bundle</code>, <code>qrencode</code> (для QR-кодов)</li>
-        <li><b>Движок:</b> бинарный файл <code>telemt</code> <b>версии 3.3.15+</b> (<a href="https://github.com/afadillo-a11y/telemt_wrt/releases">Скачать telemt ядро</a>).</li>
+        <li><b>Движок:</b> бинарный файл <code>telemt</code> <b>версии 3.4.15+</b> (<a href="https://github.com/afadillo-a11y/telemt_wrt/releases">Скачать telemt ядро</a>).</li>
       </ul>
       <b>Ключевые возможности:</b>
       <ul>
@@ -38,6 +38,9 @@
         <li><b>Self-Stealth:</b> Переадресация DPI-сканеров на локальный веб-сервер (uhttpd/nginx) с настоящим сертификатом. Настраивается через <code>mask_host</code> / <code>mask_port</code>.</li>
         <li><b>Управление базой:</b> Экспорт и импорт пользователей списком через CSV-файлы прямо в браузере.</li>
         <li><b>Маскировка:</b> Нативная поддержка PROXY protocol (для Nginx/HAProxy), Shadowsocks upstream и генерация FakeTLS ссылок (QR-коды).</li>
+        <li><b>Внешний доступ к метрикам и API:</b> Настраиваемые bind-адреса (<code>metrics_listen_addr</code> / <code>api_listen_addr</code>) — Loopback или All interfaces. По умолчанию loopback; доступ наружу ограничен whitelist.</li>
+        <li><b>Тюнинг под DPI:</b> Глобальный <code>client_mss</code> (клампинг TCP MSS, пресеты <code>tspu</code>/<code>extreme-low</code>) и динамическая SNI-маскировка (<code>mask_dynamic</code>) — помогает пробивать TSPU-блокировки.</li>
+        <li><b>Честная диагностика связи:</b> Статус апстримов по реальной достижимости DC (OK / DEGRADED), бейдж TG Path различает прямой и проксированный трафик, кнопка прямой пробы DC с роутера в обход метрик.</li>
       </ul>
     </td>
     <td valign="top">
@@ -59,7 +62,7 @@
       <ul>
         <li><b>OS:</b> OpenWrt 21.02 — 25.xx (full VDOM and APK package support)</li>
         <li><b>Dependencies:</b> <code>luci-base</code>, <code>luci-compat</code>, <code>ca-bundle</code>, <code>qrencode</code> (for QR generation)</li>
-        <li><b>Engine:</b> <code>telemt</code> binary <b>version 3.3.15+</b> (<a href="https://github.com/afadillo-a11y/telemt_wrt/releases">Download core</a>).</li>
+        <li><b>Engine:</b> <code>telemt</code> binary <b>version 3.4.15+</b> (<a href="https://github.com/afadillo-a11y/telemt_wrt/releases">Download core</a>).</li>
       </ul>
       <b>Key Features:</b>
       <ul>
@@ -70,6 +73,9 @@
         <li><b>Self-Stealth:</b> Redirect DPI scanners to a local web server (uhttpd/nginx) with a real certificate. Configurable via <code>mask_host</code> / <code>mask_port</code>.</li>
         <li><b>Database Management:</b> Bulk export and import users using CSV files directly from the browser.</li>
         <li><b>Stealth:</b> Native PROXY protocol support (for HAProxy/Nginx), Shadowsocks upstream, and one-click FakeTLS link/QR-code generation.</li>
+        <li><b>External Metrics &amp; API access:</b> Configurable bind addresses (<code>metrics_listen_addr</code> / <code>api_listen_addr</code>) — Loopback or All interfaces. Defaults to loopback; external access is whitelist-gated.</li>
+        <li><b>DPI Tuning:</b> Global <code>client_mss</code> (TCP MSS clamp, presets <code>tspu</code>/<code>extreme-low</code>) and dynamic SNI masking (<code>mask_dynamic</code>) to help punch through TSPU-style blocking.</li>
+        <li><b>Honest connectivity diagnostics:</b> Upstream status reflects real DC reachability (OK / DEGRADED), the TG Path badge distinguishes direct vs proxied traffic, and an on-router DC probe button checks reachability bypassing the metrics API.</li>
       </ul>
     </td>
   </tr>
@@ -84,13 +90,13 @@
 **Для OpenWrt 21.02 — 24.10 (через opkg):**
 ```bash
 opkg update
-opkg install luci-app-telemt_3.3.30_all.ipk
+opkg install luci-app-telemt_3.4.0_all.ipk
 ```
 
 **Для OpenWrt 25.xx и новее (через apk):**
 ```bash
 apk update
-apk add --allow-untrusted luci-app-telemt_3.3.30_noarch.apk
+apk add --allow-untrusted luci-app-telemt_3.4.0_noarch.apk
 ```
 
 <br>
@@ -101,6 +107,27 @@ apk add --allow-untrusted luci-app-telemt_3.3.30_noarch.apk
   <tr>
     <th width="15%">Версия</th>
     <th width="85%">Изменения / Highlights</th>
+  </tr>
+  <tr>
+    <td valign="top"><b>3.4.0</b><br><small>Release Candidate</small></td>
+    <td valign="top">
+      <b>Внешние метрики/API, client_mss, динамическая SNI-маска, честная диагностика связи и совместимость с AJAX-темами (Argon)</b><br>
+      <ul>
+        <li><b>Bind-адреса:</b> Новые <code>metrics_listen_addr</code> и <code>api_listen_addr</code> (дропдаун Loopback / All interfaces). Дефолт <code>127.0.0.1</code> — безопасное loopback-поведение сохранено при обновлении. Чинит «метрики недоступны снаружи»: раньше <code>metrics_listen</code> не эмитился вовсе и ядро падало на loopback, а API был жёстко на <code>0.0.0.0</code>.</li>
+        <li><b>client_mss (ядро 3.4.18):</b> Глобальный клампинг TCP MSS в <code>[server]</code>. Пресеты <code>tspu</code> / <code>extreme-low</code> / <code>2in8</code> для абонентов за TSPU/DPI. Пусто = дефолт ядра.</li>
+        <li><b>mask_dynamic (ядро 3.4.18):</b> Вынесен как Flag (дефолт ON, как в бинарнике). Делает явным изменение поведения: при пустом <code>mask_host</code> fallback-маскировка берёт SNI из ClientHello (только если он совпадает с настроенным TLS-доменом).</li>
+        <li><b>Честный статус апстримов:</b> Маршрут больше не светится зелёным «OK» только по флагу <code>healthy</code> ядра. Если транспорт жив, но ни один Telegram DC через него не достижим (все <code>dc[].latency_ema_ms</code> = null) — статус <b>DEGRADED</b> (жёлтый). Лечит ситуацию, когда <code>direct</code> показывался рабочим, хотя DC через него недоступны.</li>
+        <li><b>Честный TG Path:</b> Бейдж режима больше не показывает «Direct-DC», когда трафик реально идёт через прокси/VLESS. Теперь <b>«via SOCKS5/Mixed»</b>, если есть апстримы, и <b>«Direct»</b> — только при реально прямом egress без прокси.</li>
+        <li><b>Проба DC с роутера:</b> Кнопка <b>Probe DCs from router</b> в панели Telegram Path — реальный TCP-connect к DC1–DC5 прямо с роутера, в обход метрик ядра. Показывает наземную правду о достижимости DC (<code>N/5 reachable</code>), которую stats API дать не может.</li>
+        <li><b>Argon / Material fix:</b> Bootstrap фронтенда ждёт реального появления CBI-DOM (таймер + <code>MutationObserver</code>) вместо одноразового <code>DOMContentLoaded</code>. Лечит пропадание статуса/PID/RSS под AJAX-роутящими темами (бинарник работает, а UI показывает «не запущен»). На сток-темах нагрузка и поведение не изменились.</li>
+        <li><b>Fix #15 — ссылки и QR после ядра 3.4.19:</b> Ready-to-use link и QR перестали отображаться, хотя <code>/v1/users</code> отдавал ссылки корректно. Причина: UI строил ссылку на клиенте из UCI-поля, а не из API. Теперь ссылка берётся напрямую из авторитетного <code>/v1/users</code> (<code>links.tls/secure/classic</code>), с откатом на клиентскую сборку, если API недоступен. QR использует то же поле.</li>
+        <li><b>Observer target:</b> Основной <code>MutationObserver</code> теперь <code>#maincontent</code> → <code>.cbi-map</code> → <code>body</code> — не зависит от наличия <code>#maincontent</code>.</li>
+        <li><b>IPv4-only control-plane:</b> Валидатор <code>is_bind_addr</code> принимает только <code>127.0.0.1</code>/<code>0.0.0.0</code> (значения dropdown); мусор отбрасывается на loopback. <code>socket_addr()</code> с bracket-нотацией оставлен как защита на будущее.</li>
+        <li><b>Init.d (зеркально):</b> <code>metrics_listen</code> и <code>[server.api].listen</code> из UCI с валидацией. <code>client_mss</code> в <code>[server]</code>, <code>mask_dynamic</code> в <code>[censorship]</code>. <code>run_save_stats</code> сохранён на IPv4-loopback.</li>
+        <li><b>Requires telemt v3.4.15+</b> (client_mss появился в ядре 3.4.15; протестировано с 3.4.19).</li>
+        <li><b>Намеренно не добавлено:</b> SYN-лимитер ядра 3.4.18 — на OpenWrt с procd и активным <code>auto_fw</code> управление netfilter из бинарника конфликтует с правилами firewall; оставлен off по умолчанию ядра.</li>
+      </ul>
+    </td>
   </tr>
   <tr>
     <td valign="top"><b>3.3.30</b><br><small>Release Candidate</small></td>
