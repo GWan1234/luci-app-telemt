@@ -90,13 +90,13 @@
 **Для OpenWrt 21.02 — 24.10 (через opkg):**
 ```bash
 opkg update
-opkg install luci-app-telemt_3.4.0_all.ipk
+opkg install luci-app-telemt_3.5.8-r1_all.ipk
 ```
 
 **Для OpenWrt 25.xx и новее (через apk):**
 ```bash
 apk update
-apk add --allow-untrusted luci-app-telemt_3.4.0_noarch.apk
+apk add --allow-untrusted luci-app-telemt-3.5.8-r1.apk
 ```
 
 <br>
@@ -143,7 +143,7 @@ apk add --allow-untrusted luci-app-telemt_3.4.0_noarch.apk
         <li><b>Polling fix:</b> <code>stopTimers()</code> убран из раннего выхода — polling не умирает при медленном рендере.</li>
         <li><b>Lua safety:</b> Regex с <code>[[</code>/<code>]]</code> переписаны через <code>String.fromCharCode()</code>. ES2018 <code>/is</code> → совместимый <code>/i</code>.</li>
         <li><b>Dark theme:</b> Заменены ~15 hardcoded серых цветов на <code>inherit</code> / <code>opacity</code>.</li>
-        <li><b>IPK packaging:</b> <code>nfpm.yaml</code> ставит <code>/etc/config/telemt</code>. Postinst: fallback-конфиг + полная очистка кеша (21.x–25.x).</li>
+        <li><b>IPK packaging:</b> <code>owfeed.yml</code> собирает IPK/APK из <code>root/</code> (см. <code>RELEASING.md</code>); <code>/etc/config/telemt</code> принадлежит ядру. Postinst: fallback-конфиг + полная очистка кеша (21.x–25.x).</li>
         <li><b>Init.d (зеркально):</b> <code>mask_port</code>/<code>mask_host</code> из UCI → TOML. Shadowsocks <code>url</code> в upstream handler. <code>data_path</code> (gated ≥ 3.3.19).</li>
       </ul>
     </td>

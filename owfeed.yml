@@ -1,0 +1,47 @@
+# yaml-language-server: $schema=https://owfeed.org/schema/v1.json
+#
+# OpenWrt package definition for luci-app-telemt.
+# owfeed builds native APKv3 packages for OpenWrt 25.12+ and IPK packages for 24.10
+# from the same staged root filesystem (tools/stage.sh -> dist/).
+version: 1
+
+feed:
+  name: luci-app-telemt
+  url: https://github.com/Medvedolog/luci-app-telemt
+  title: luci-app-telemt
+  maintainer: "Medvedolog <Medvedolog@github.com>"
+  homepage: https://github.com/Medvedolog/luci-app-telemt
+
+releases:
+  - line: "25.12"
+    default: true
+    format: apk
+  - line: "24.10"
+    format: ipk
+
+# This repository publishes signed GitHub release assets, not its own feed.
+# A community feed can ingest the signed manifest and author-signed packages.
+publish:
+  - target: github-pages
+
+packages:
+  - name: luci-app-telemt
+    build: mkpkg
+    arch: noarch
+    version-from: file:./dist/VERSION
+    files: ./dist/root
+
+    description: "LuCI WebUI for Telemt MTProxy: multi-user management, upstream cascades, WEB Proxy (vhosts, shared users, HAProxy/NGINX frontend helpers), live diagnostics and Telegram bot integration. Requires the telemt core package."
+    # /etc/config/telemt is owned by the telemt core package, so the core is not a
+    # hard dependency: this UI must stay installable when the core feed is unreachable.
+    depends: [libc, luci-base, luci-compat, qrencode, ca-bundle]
+    license: GPL-2.0-or-later
+    url: https://github.com/Medvedolog/luci-app-telemt
+    maintainer: "Medvedolog <Medvedolog@github.com>"
+    repo-commit: env:GITHUB_SHA
+
+    # /etc/config/telemt is intentionally NOT packaged here.
+    scripts:
+      post-install: ./dist/scripts/postinst
+      pre-deinstall: ./dist/scripts/prerm
+      post-deinstall: ./dist/scripts/postrm

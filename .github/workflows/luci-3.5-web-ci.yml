@@ -24,29 +24,29 @@ jobs:
       - name: Validate Lua 5.1 syntax
         run: |
           set -euxo pipefail
-          luac5.1 -p usr/lib/lua/luci/controller/telemt.lua
-          luac5.1 -p usr/lib/lua/luci/model/cbi/telemt.lua
-          luac5.1 -p usr/lib/lua/luci/model/cbi/telemt_legacy.lua
-          luac5.1 -p usr/lib/lua/luci/model/cbi/telemt_users_web.lua
-          luac5.1 -p usr/lib/lua/luci/model/cbi/telemt_web.lua
+          luac5.1 -p root/usr/lib/lua/luci/controller/telemt.lua
+          luac5.1 -p root/usr/lib/lua/luci/model/cbi/telemt.lua
+          luac5.1 -p root/usr/lib/lua/luci/model/cbi/telemt_legacy.lua
+          luac5.1 -p root/usr/lib/lua/luci/model/cbi/telemt_users_web.lua
+          luac5.1 -p root/usr/lib/lua/luci/model/cbi/telemt_web.lua
 
       - name: Validate LuCI JSON
         run: |
           set -euxo pipefail
-          jq -e . usr/share/luci/menu.d/luci-app-telemt.json >/dev/null
-          jq -e . usr/share/rpcd/acl.d/luci-app-telemt.json >/dev/null
-          jq -e 'has("admin/services/telemt")' usr/share/luci/menu.d/luci-app-telemt.json >/dev/null
-          jq -e 'has("admin/services/telemt/web") | not' usr/share/luci/menu.d/luci-app-telemt.json >/dev/null
+          jq -e . root/usr/share/luci/menu.d/luci-app-telemt.json >/dev/null
+          jq -e . root/usr/share/rpcd/acl.d/luci-app-telemt.json >/dev/null
+          jq -e 'has("admin/services/telemt")' root/usr/share/luci/menu.d/luci-app-telemt.json >/dev/null
+          jq -e 'has("admin/services/telemt/web") | not' root/usr/share/luci/menu.d/luci-app-telemt.json >/dev/null
 
       - name: Assert shared UCI ownership and WEB payload
         run: |
           set -euxo pipefail
 
-          WEB_MODEL=usr/lib/lua/luci/model/cbi/telemt_web.lua
-          USERS_WRAPPER=usr/lib/lua/luci/model/cbi/telemt.lua
-          USERS_LEGACY=usr/lib/lua/luci/model/cbi/telemt_legacy.lua
-          USERS_WEB=usr/lib/lua/luci/model/cbi/telemt_users_web.lua
-          CONTROLLER=usr/lib/lua/luci/controller/telemt.lua
+          WEB_MODEL=root/usr/lib/lua/luci/model/cbi/telemt_web.lua
+          USERS_WRAPPER=root/usr/lib/lua/luci/model/cbi/telemt.lua
+          USERS_LEGACY=root/usr/lib/lua/luci/model/cbi/telemt_legacy.lua
+          USERS_WEB=root/usr/lib/lua/luci/model/cbi/telemt_users_web.lua
+          CONTROLLER=root/usr/lib/lua/luci/controller/telemt.lua
 
           test -s "$WEB_MODEL"
           test -s "$USERS_WRAPPER"
@@ -60,14 +60,14 @@ jobs:
             echo 'ERROR: internal WEB route must stay hidden from LuCI child navigation' >&2
             exit 1
           fi
-          grep -q '3.5.8-r1 WEB alpha' usr/lib/lua/luci/model/cbi/telemt_legacy.lua
+          grep -q '3.5.8-r1 WEB alpha' root/usr/lib/lua/luci/model/cbi/telemt_legacy.lua
           grep -q 'debug_sideband = web:taboption("settings", Flag, "debug_sideband"' "$WEB_MODEL"
           grep -q 'debug_capture = web:taboption("settings", Flag, "debug_capture_lifecycle"' "$WEB_MODEL"
           grep -q 'debug_sideband.default = debug_sideband.disabled' "$WEB_MODEL"
-          grep -q 'cmp_ver(bin_ver, "3.5.8") >= 0' usr/lib/lua/luci/model/cbi/telemt_legacy.lua
-          grep -q 's:tab("general", "General Settings")' usr/lib/lua/luci/model/cbi/telemt_legacy.lua
-          grep -q 's:tab("web_proxy", "WEB Proxy")' usr/lib/lua/luci/model/cbi/telemt_legacy.lua
-          grep -q 's:tab("advanced", "Advanced Tuning")' usr/lib/lua/luci/model/cbi/telemt_legacy.lua
+          grep -q 'cmp_ver(bin_ver, "3.5.8") >= 0' root/usr/lib/lua/luci/model/cbi/telemt_legacy.lua
+          grep -q 's:tab("general", "General Settings")' root/usr/lib/lua/luci/model/cbi/telemt_legacy.lua
+          grep -q 's:tab("web_proxy", "WEB Proxy")' root/usr/lib/lua/luci/model/cbi/telemt_legacy.lua
+          grep -q 's:tab("advanced", "Advanced Tuning")' root/usr/lib/lua/luci/model/cbi/telemt_legacy.lua
           grep -q 'telemt-main-tabs' "$WEB_MODEL"
           if grep -q 'telemt-advanced-subtabs' "$WEB_MODEL"; then
             echo 'ERROR: WEB Proxy must be a top-level app tab, not an Advanced subtab' >&2
@@ -158,10 +158,11 @@ jobs:
             exit 1
           fi
 
-          # Dev packaging is owfeed-only for both 24.10/IPK and 25.12/APKv3.
-          PKG_WF=.github/workflows/luci-web-test-package-ci.yml
-          grep -q 'format: ipk' "$PKG_WF"
-          grep -q 'format: apk' "$PKG_WF"
-          grep -q 'owfeed build --release 24.10' "$PKG_WF"
-          grep -q 'owfeed build --release 25.12' "$PKG_WF"
-          grep -q 'arch: noarch' "$PKG_WF"
+          # Packaging is owfeed-only: one staged tree -> 24.10/IPK and 25.12/APKv3.
+          ! test -e nfpm.yaml
+          grep -q 'format: ipk' owfeed.yml
+          grep -q 'format: apk' owfeed.yml
+          grep -q 'arch: noarch' owfeed.yml
+          grep -q 'version-from: file:./dist/VERSION' owfeed.yml
+          grep -q 'owfeed plan' .github/workflows/ci.yml
+          grep -q 'owfeed build' .github/workflows/ci.yml

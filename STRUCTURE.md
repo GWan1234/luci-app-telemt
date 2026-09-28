@@ -25,7 +25,8 @@
  ┃   ┗ 📂 bin/
  ┃     ┗ 📜 <b>telemt_bot.sh</b>            <span style="color: #6a737d;">// Telegram Bot execution script (ash/curl)</span>
  ┣ 📜 Makefile                       <span style="color: #6a737d;">// OpenWrt build recipe for .ipk (legacy/stable)</span>
- ┗ 📜 nfpm.yaml                      <span style="color: #6a737d;">// Multi-packager config (generates .ipk and .apk via GitHub Actions)</span>
+ ┣ 📜 owfeed.yml                      <span style="color: #6a737d;">// owfeed package definition (IPK for 24.10, APKv3 for 25.12) — see RELEASING.md</span>
+ ┗ 📜 tools/stage.sh                 <span style="color: #6a737d;">// stages root/ + scripts/ into dist/ for owfeed</span>
 </pre>
 
 <hr>
