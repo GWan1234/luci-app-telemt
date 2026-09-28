@@ -60,7 +60,11 @@ jobs:
             echo 'ERROR: internal WEB route must stay hidden from LuCI child navigation' >&2
             exit 1
           fi
-          grep -q '3.5.7-r2 WEB alpha' usr/lib/lua/luci/model/cbi/telemt_legacy.lua
+          grep -q '3.5.8-r1 WEB alpha' usr/lib/lua/luci/model/cbi/telemt_legacy.lua
+          grep -q 'debug_sideband = web:taboption("settings", Flag, "debug_sideband"' "$WEB_MODEL"
+          grep -q 'debug_capture = web:taboption("settings", Flag, "debug_capture_lifecycle"' "$WEB_MODEL"
+          grep -q 'debug_sideband.default = debug_sideband.disabled' "$WEB_MODEL"
+          grep -q 'cmp_ver(bin_ver, "3.5.8") >= 0' usr/lib/lua/luci/model/cbi/telemt_legacy.lua
           grep -q 's:tab("general", "General Settings")' usr/lib/lua/luci/model/cbi/telemt_legacy.lua
           grep -q 's:tab("web_proxy", "WEB Proxy")' usr/lib/lua/luci/model/cbi/telemt_legacy.lua
           grep -q 's:tab("advanced", "Advanced Tuning")' usr/lib/lua/luci/model/cbi/telemt_legacy.lua
@@ -69,7 +73,11 @@ jobs:
             echo 'ERROR: WEB Proxy must be a top-level app tab, not an Advanced subtab' >&2
             exit 1
           fi
-          grep -q 'telemt_adv=1' "$WEB_MODEL"
+          # Obsolete since WEB became a top-level tab: no Advanced-subtab deep link.
+          if grep -q 'telemt_adv=1' "$WEB_MODEL"; then
+            echo 'ERROR: stale Advanced-subtab deep link (telemt_adv=1) found' >&2
+            exit 1
+          fi
 
           # Fixed helper endpoints only; LuCI must never execute an arbitrary command.
           grep -q 'call("web_frontend_action")' "$CONTROLLER"

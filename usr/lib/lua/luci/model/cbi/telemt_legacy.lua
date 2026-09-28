@@ -1,12 +1,12 @@
 -- -- ==============================================================================
 -- Telemt CBI Model (Configuration Binding Interface)
--- Version: 3.5.7-r2 WEB alpha
+-- Version: 3.5.8-r1 WEB alpha
 -- Changes from 3.3.31:
 --   - metrics_listen_addr / api_listen_addr (external metrics/API bind, default loopback)
 --   - client_mss (3.4.18) global TCP MSS clamp in [server]
 --   - mask_dynamic (3.4.18) surfaced as Flag in [censorship]
 --   - Argon/AJAX-theme bootstrap fix (status panel no longer stuck on PENDING)
---   - WEB alpha UI aligned with Telemt 3.5.7; package revision r2
+--   - WEB alpha UI aligned with Telemt 3.5.8 (optional [web.debug] sideband); package revision r1
 -- Earlier: Version: 3.3.29
 -- Changes from 3.3.21:
 --   - Dark theme fix: replaced hardcoded color:#555/#888 with inherit/opacity
@@ -528,15 +528,18 @@ if bin_path ~= "" then
 
     if bin_ver == "unknown" then
         comp_badge = "<span style='color:#d35400;font-weight:bold;'>[ Unknown Version ]</span>"
-    elseif cmp_ver(bin_ver, "3.4.15") >= 0 then
+    elseif cmp_ver(bin_ver, "3.5.8") >= 0 then
         comp_badge = "<span style='color:#00a000;font-weight:bold;'>[ Compatible ]</span>"
+    elseif cmp_ver(bin_ver, "3.4.15") >= 0 then
+        -- Classic/DD/FakeTLS keep working; WEB needs core 3.5.6+, WEB sideband 3.5.8+.
+        comp_badge = "<span style='color:#d35400;font-weight:bold;'>[ Limited: update core for WEB ]</span>"
     else
         comp_badge = "<span style='color:#d9534f;font-weight:bold;'>[ Unsupported Version ]</span>"
     end
 end
 
 m = Map("telemt", "Telegram Proxy (MTProto)",
-    [[Multi-user proxy server based on <a href="https://github.com/telemt/telemt" target="_blank" style="text-decoration:none; color:inherit; font-weight:bold; border-bottom: 1px dotted currentColor;">telemt</a>.<br><b>LuCI App Version: <a href="https://github.com/Medvedolog/luci-app-telemt" target="_blank" style="text-decoration:none; color:inherit; border-bottom: 1px dotted currentColor;">3.5.7-r2 WEB alpha</a></b> | <span style='color:#d35400; font-weight:bold;'>WEB requires telemt v3.5.7+</span>]])
+    [[Multi-user proxy server based on <a href="https://github.com/telemt/telemt" target="_blank" style="text-decoration:none; color:inherit; font-weight:bold; border-bottom: 1px dotted currentColor;">telemt</a>.<br><b>LuCI App Version: <a href="https://github.com/Medvedolog/luci-app-telemt" target="_blank" style="text-decoration:none; color:inherit; border-bottom: 1px dotted currentColor;">3.5.8-r1 WEB alpha</a></b> | <span style='color:#d35400; font-weight:bold;'>WEB requires telemt v3.5.8+</span>]])
 m.on_commit = function(self)
     sys.call(
         "logger -t telemt 'WebUI: Config saved. Dumping stats before procd reload...'; /etc/init.d/telemt run_save_stats 2>/dev/null")
