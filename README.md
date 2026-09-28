@@ -15,7 +15,7 @@
       <br><br>
       <b>Раздельная архитектура</b> — три независимых компонента:
       <ul>
-        <li><b><a href="https://github.com/afadillo-a11y/telemt_wrt">telemt_wrt</a></b> — Headless ядро: Rust-бинарник MTProto прокси + init.d бэкенд (генерация TOML, lifecycle через procd)</li>
+        <li><b><a href="https://github.com/Medvedolog/telemt_owrt">telemt_owrt</a></b> — Headless ядро: Rust-бинарник MTProto прокси + init.d бэкенд (генерация TOML, lifecycle через procd)</li>
         <li><b>luci-app-telemt</b> — Веб-интерфейс LuCI: CBI-модель, Zero-CORS API proxy, Diagnostics dashboard</li>
         <li><b><a href="https://github.com/Medvedolog/telemt-bot">telemt-bot</a></b> — Telegram-бот на чистом BusyBox ash (POSIX sh): 0 зависимостей, 3–5 MB RAM, 3-tier failover (SOCKS→Direct→Emergency), inline keyboards, edit-in-place, health daemon. Работает на любом OpenWrt от MIPS до aarch64.</li>
       </ul>
@@ -27,7 +27,7 @@
       <ul><li><b>Сеть:</b> Белый уличный статический или динамический IP адрес
         <li><b>ОС:</b> OpenWrt 21.02 — 25.xx (полная поддержка VDOM и APK-пакетов)</li>
         <li><b>Зависимости:</b> <code>luci-base</code>, <code>luci-compat</code>, <code>ca-bundle</code>, <code>qrencode</code> (для QR-кодов)</li>
-        <li><b>Движок:</b> бинарный файл <code>telemt</code> <b>версии 3.4.15+</b> (<a href="https://github.com/afadillo-a11y/telemt_wrt/releases">Скачать telemt ядро</a>).</li>
+        <li><b>Движок:</b> бинарный файл <code>telemt</code> <b>версии 3.5.8+</b> (<a href="https://github.com/Medvedolog/telemt_owrt/releases">Скачать telemt ядро</a>).</li>
       </ul>
       <b>Ключевые возможности:</b>
       <ul>
@@ -50,7 +50,7 @@
       <br><br>
       <b>Micro-service architecture</b> — three independent components:
       <ul>
-        <li><b><a href="https://github.com/afadillo-a11y/telemt_wrt">telemt_wrt</a></b> — Headless core: Rust MTProto proxy binary + init.d backend (TOML generation, procd lifecycle)</li>
+        <li><b><a href="https://github.com/Medvedolog/telemt_owrt">telemt_owrt</a></b> — Headless core: Rust MTProto proxy binary + init.d backend (TOML generation, procd lifecycle)</li>
         <li><b>luci-app-telemt</b> — LuCI web interface: CBI model, Zero-CORS API proxy, Diagnostics dashboard</li>
         <li><b><a href="https://github.com/Medvedolog/telemt-bot">telemt-bot</a></b> — Telegram bot in pure BusyBox ash (POSIX sh): zero dependencies, 3–5 MB RAM, 3-tier failover (SOCKS→Direct→Emergency), inline keyboards, edit-in-place, health daemon. Runs on any OpenWrt from MIPS to aarch64.</li>
       </ul>
@@ -62,7 +62,7 @@
       <ul>
         <li><b>OS:</b> OpenWrt 21.02 — 25.xx (full VDOM and APK package support)</li>
         <li><b>Dependencies:</b> <code>luci-base</code>, <code>luci-compat</code>, <code>ca-bundle</code>, <code>qrencode</code> (for QR generation)</li>
-        <li><b>Engine:</b> <code>telemt</code> binary <b>version 3.4.15+</b> (<a href="https://github.com/afadillo-a11y/telemt_wrt/releases">Download core</a>).</li>
+        <li><b>Engine:</b> <code>telemt</code> binary <b>version 3.5.8+</b> (<a href="https://github.com/Medvedolog/telemt_owrt/releases">Download core</a>).</li>
       </ul>
       <b>Key Features:</b>
       <ul>
@@ -85,7 +85,7 @@
 
 <h2 align="center">📦 Установка / Installation</h2>
 
-В связи с переходом на микросервисную архитектуру, сначала необходимо установить ядро (`telemt_wrt`), а затем данный веб-интерфейс (`luci-app-telemt`).
+В связи с переходом на микросервисную архитектуру, сначала необходимо установить ядро (`telemt_owrt`), а затем данный веб-интерфейс (`luci-app-telemt`).
 
 **Для OpenWrt 21.02 — 24.10 (через opkg):**
 ```bash

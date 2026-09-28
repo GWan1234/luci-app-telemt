@@ -32,7 +32,7 @@
 <hr>
 
 <h2>📦 2. Installation Lifecycle (.ipk / .apk)</h2>
-<p>Because of the <b>Micro-Service Architecture</b>, the core binary (<code>telemt_wrt</code>) is installed separately from the Web UI (<code>luci-app-telemt</code>). When the UI package is installed via <code>opkg</code> or <code>apk</code>, the following sequence occurs:</p>
+<p>Because of the <b>Micro-Service Architecture</b>, the core binary (<code>telemt_owrt</code>) is installed separately from the Web UI (<code>luci-app-telemt</code>). When the UI package is installed via <code>opkg</code> or <code>apk</code>, the following sequence occurs:</p>
 
 <blockquote>
   <b>1. Extraction ➔ 2. Core Dependency Check ➔ 3. Post-Install Hooks ➔ 4. Service Registration</b>
