@@ -2,6 +2,14 @@
 
 Версия пакета / package version: `X.Y.Z-rN` (`X.Y.Z` — версия LuCI-приложения, совпадает с версией ядра `telemt`, которое оно поддерживает; `rN` — ревизия упаковки).
 
+## Unreleased
+
+**RU**
+- В релиз LuCI автоматически прикладываются пакеты ядра `telemt` той же базовой версии (`tools/bundle-core.sh`): без изменений, с подписями автора ядра. Релизить нужно по очереди: сначала ядро, потом LuCI. См. [RELEASING.md](RELEASING.md).
+
+**EN**
+- A LuCI release now carries the `telemt` core packages of the same base version (`tools/bundle-core.sh`), unchanged and with the core author's signatures. Release in order: core first, then LuCI. See [RELEASING.md](RELEASING.md).
+
 ## 3.5.8-r1 — 2026-09-29
 
 **RU**

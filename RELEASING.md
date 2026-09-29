@@ -59,6 +59,17 @@ manifest.txt
 *.sig
 ```
 
+## Парное ядро в релизе
+
+После публикации релиза job `bundle-core` (`tools/bundle-core.sh`) берёт релиз ядра [`Medvedolog/telemt_owrt`](https://github.com/Medvedolog/telemt_owrt/releases) **той же базовой версии** и прикладывает его пакеты к релизу LuCI:
+
+- для тега `X.Y.Z` (или `X.Y.Z-N`) выбирается самая свежая ревизия ядра среди тегов `X.Y.Z`, `X.Y.Z-2`, … (pre-release считаются, черновики нет);
+- манифест ядра проверяется подписью автора ядра (`keys/telemt-core-release.pub`, id закреплён в скрипте), каждый файл сверяется с ним по размеру и sha256;
+- файлы загружаются **без изменений**, с оригинальными `.sig`; манифест ядра лежит как `core-manifest.txt` (+ `.sig`), чтобы не затирать `manifest.txt` LuCI. Через owfeed-релиз LuCI ядро не пропускается: иначе оно было бы подписано ключом LuCI и попало бы в его `manifest.txt`. Заявка в owfeed-packages от этого не меняется;
+- если релиза ядра с такой базовой версией ещё нет, job ничего не делает (в логе `notice`). **Поэтому релизим по очереди: сначала ядро, потом LuCI.**
+
+Проверка без загрузки: `sh tools/bundle-core.sh 3.5.8` (нужны `owfeed`, `jq`, `curl`). Если публичный ключ ядра когда-либо будет заменён, обновите `keys/telemt-core-release.pub` и `CORE_KEY_ID` в `tools/bundle-core.sh`; `tools/check-sources.sh` следит, чтобы они совпадали. Для уже вышедшего релиза бандл можно догрузить вручную: `UPLOAD=1 sh tools/bundle-core.sh 3.5.8`.
+
 ## Добавление в owfeed-packages
 
 Intake — signed upstream manifest: feed ничего не пересобирает, а забирает опубликованный пакет, проверяет manifest и подпись автора и включает те же байты в индекс. После первого подписанного релиза в PR в `owfeed/owfeed-packages` кладутся публичный ключ `keys/telemt-luci-release.pub` и `packages/luci-app-telemt/upstream.sh`:
