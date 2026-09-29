@@ -136,4 +136,10 @@ grep -q 'format: apk' owfeed.yml
 grep -q 'arch: noarch' owfeed.yml
 grep -q 'version-from: file:./dist/VERSION' owfeed.yml
 
+# The core bundle: script parses, and the pinned core key matches the id it checks.
+sh -n tools/bundle-core.sh
+[ -s keys/telemt-core-release.pub ]
+[ "$(tail -n1 keys/telemt-core-release.pub | base64 -d | od -An -tx1 -j2 -N8 | tr -d ' \n')" = "$(sed -n 's/^CORE_KEY_ID="\(.*\)"/\1/p' tools/bundle-core.sh)" ] || fail 'keys/telemt-core-release.pub does not match CORE_KEY_ID in tools/bundle-core.sh'
+grep -q 'bundle-core' .github/workflows/ci.yml
+
 echo 'source contracts ok'

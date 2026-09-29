@@ -129,3 +129,25 @@ jobs:
     with:
       owfeed-version: v0.5.1
       verify-with: keys/telemt-luci-release.pub
+
+  # The telemt core of the same base version, attached to this release byte for byte
+  # with its author's signatures. Runs after the release exists; when the core has
+  # not been released yet it does nothing, so release the core first.
+  bundle-core:
+    name: Attach matching core packages
+    needs: [release]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: owfeed/owfeed/setup@v0.5.1
+        with:
+          version: v0.5.1
+      - run: UPLOAD=1 sh tools/bundle-core.sh "$GITHUB_REF_NAME"
