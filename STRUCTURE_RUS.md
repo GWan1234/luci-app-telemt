@@ -25,7 +25,8 @@
  ┃   ┗ 📂 share/telemt-luci/
  ┃     ┗ 📜 <b>init_script</b>            <span style="color: #6a737d;">// ⚙️ Пламенный мотор: Procd init.d скрипт и кодогенератор TOML</span>
  ┣ 📜 Makefile                     <span style="color: #6a737d;">// Рецепт сборки .ipk для суровых парней с OpenWrt SDK</span>
- ┗ 📜 nfpm.yaml                    <span style="color: #6a737d;">// Магический конфиг (автоматически собирает .ipk/.apk через GitHub Actions)</span>
+ ┣ 📜 owfeed.yml                    <span style="color: #6a737d;">// owfeed package definition (IPK for 24.10, APKv3 for 25.12) — see RELEASING.md</span>
+ ┗ 📜 tools/stage.sh                 <span style="color: #6a737d;">// stages root/ + scripts/ into dist/ for owfeed</span>
 </pre>
 
 <hr>

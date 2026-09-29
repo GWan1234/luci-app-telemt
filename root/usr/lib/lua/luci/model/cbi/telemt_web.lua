@@ -1,0 +1,617 @@
+-- ==============================================================================
+-- Telemt WEB Proxy CBI model
+-- Telemt >= 3.5.6
+-- UCI /etc/config/telemt remains the single source of truth.
+-- ==============================================================================
+
+local sys = require "luci.sys"
+local dsp = require "luci.dispatcher"
+local uci = require("luci.model.uci").cursor()
+
+-- ucodebridge on OpenWrt 24.10 does not reliably inject the global _()
+-- translator into standalone CBI routes. Use luci.i18n explicitly.
+local ok_i18n, i18n = pcall(require, "luci.i18n")
+local _ = (ok_i18n and i18n and i18n.translate) or function(s) return s end
+
+local function trim(s)
+    return (tostring(s or ""):gsub("^%s+", ""):gsub("%s+$", ""))
+end
+
+local function html_escape(s)
+    return tostring(s or "")
+        :gsub("&", "&amp;")
+        :gsub("<", "&lt;")
+        :gsub(">", "&gt;")
+        :gsub('"', "&quot;")
+end
+
+local function js_quote(s)
+    return tostring(s or "")
+        :gsub("\\", "\\\\")
+        :gsub("'", "\\'")
+        :gsub("\r", "\\r")
+        :gsub("\n", "\\n")
+end
+
+local function valid_vhost_name(v)
+    return v:match("^[A-Za-z0-9_-]+$") ~= nil
+end
+
+local function valid_fqdn(v)
+    if #v < 3 or #v > 253 or not v:find("%.", 1, false) then return false end
+    if not v:match("^[A-Za-z0-9][A-Za-z0-9%.%-]*[A-Za-z0-9]$") then return false end
+    if v:find("%.%.", 1, false) then return false end
+    for label in v:gmatch("[^%.]+") do
+        if #label > 63 or label:sub(1,1) == "-" or label:sub(-1) == "-" then return false end
+    end
+    return true
+end
+
+local function valid_public_addr(v)
+    if v:match("^%d+%.%d+%.%d+%.%d+:443$") then return true end
+    if v:match("^%[[0-9A-Fa-f:]+%]:443$") then return true end
+    return false
+end
+
+local function valid_decoy(v)
+    if v:match("^http://%d+%.%d+%.%d+%.%d+:%d+$") then return true end
+    if v:match("^http://%d+%.%d+%.%d+%.%d+$") then return true end
+    if v:match("^http://%[[0-9A-Fa-f:]+%]:%d+$") then return true end
+    if v:match("^http://%[[0-9A-Fa-f:]+%]$") then return true end
+    return false
+end
+
+local function valid_carrier(v)
+    return v == "https" or v == "https-lanes" or v == "websocket" or v == "websocket-lanes"
+end
+
+local function helper_output(path, arg)
+    if sys.call("test -x " .. path .. " >/dev/null 2>&1") ~= 0 then
+        return "helper missing: " .. path
+    end
+    return trim(sys.exec(path .. " " .. arg .. " 2>&1") or "")
+end
+
+local users = {}
+uci:foreach("telemt", "user", function(s)
+    local name = s[".name"]
+    if name and name ~= "" then
+        users[#users + 1] = {
+            name = name,
+            enabled = tostring(s.enabled or "1") ~= "0"
+        }
+    end
+end)
+table.sort(users, function(a, b) return a.name < b.name end)
+
+local vhosts = {}
+local vhost_hosts = {}
+uci:foreach("telemt", "web_vhost", function(s)
+    local name = trim(s.name or "")
+    local host = trim(s.host or ""):lower()
+    if name ~= "" then vhosts[#vhosts + 1] = name end
+    if tostring(s.enabled or "1") ~= "0" and valid_vhost_name(name) and valid_fqdn(host) then
+        vhost_hosts[name] = host
+    end
+end)
+table.sort(vhosts)
+
+-- Generate connection data dynamically from shared config user + WEB profile.
+-- Nothing is persisted as a second link/secret database.
+local web_links = {}
+uci:foreach("telemt", "web_profile", function(s)
+    if tostring(s.enabled or "1") == "0" then return end
+
+    local sid = tostring(s[".name"] or "")
+    local user = trim(s.user or "")
+    local vhost = trim(s.vhost or "")
+    local mode = trim(s.secret_mode or "dd")
+    local host = vhost_hosts[vhost]
+    local ud = user ~= "" and uci:get_all("telemt", user) or nil
+    local secret = ud and trim(ud.secret or "") or ""
+
+    if sid:match("^[A-Za-z0-9_]+$") and host and ud and ud[".type"] == "user" and
+       #secret == 32 and secret:match("^[0-9A-Fa-f]+$") and (mode == "plain" or mode == "dd") then
+        local wire_secret = (mode == "dd" and "dd" or "") .. secret:lower()
+        web_links[#web_links + 1] = {
+            section = sid,
+            user = user,
+            vhost = vhost,
+            host = host,
+            mode = mode,
+            active = tostring(ud.enabled or "1") ~= "0",
+            link = "tg://webproxy?server=" .. host .. "&secret=" .. wire_secret
+        }
+    end
+end)
+table.sort(web_links, function(a, b)
+    if a.host ~= b.host then return a.host < b.host end
+    return a.user < b.user
+end)
+
+local frontend_action_url = dsp.build_url("admin", "services", "telemt", "web_frontend_action")
+local web_qr_url = dsp.build_url("admin", "services", "telemt", "web_qr")
+
+-- Managed actions deliberately use the SAVED frontend selection. This prevents an
+-- unsaved CBI dropdown change from routing an action to a different daemon.
+local saved_frontend = tostring(uci:get("telemt", "web", "tls_terminator") or "external")
+local frontend_helper = nil
+local frontend_label = _("External")
+if saved_frontend == "haproxy" then
+    frontend_helper = "/usr/libexec/telemt-web-frontend"
+    frontend_label = "HAProxy"
+elseif saved_frontend == "nginx" then
+    frontend_helper = "/usr/libexec/telemt-web-nginx"
+    frontend_label = "NGINX"
+end
+
+m = Map("telemt", _("Telegram Proxy (MTProto)"),
+    _("WEB Proxy settings for Telemt 3.5.8. Configuration is stored only in /etc/config/telemt; the runtime TOML is generated by /etc/init.d/telemt."))
+
+local topnav = m:section(SimpleSection)
+local topnav_value = topnav:option(DummyValue, "_top_navigation")
+topnav_value.rawhtml = true
+topnav_value.default = string.format([[
+<ul class="cbi-tabmenu telemt-main-tabs">
+  <li class="cbi-tab-disabled"><a href="%s">General Settings</a></li>
+  <li class="cbi-tab"><a href="javascript:void(0)">WEB Proxy</a></li>
+  <li class="cbi-tab-disabled"><a href="%s?telemt_tab=Advanced%%20Tuning">Advanced Tuning</a></li>
+  <li class="cbi-tab-disabled"><a href="%s?telemt_tab=Upstreams">Upstreams</a></li>
+  <li class="cbi-tab-disabled"><a href="%s?telemt_tab=Users">Users</a></li>
+  <li class="cbi-tab-disabled"><a href="%s?telemt_tab=Telegram%%20Bot">Telegram Bot</a></li>
+  <li class="cbi-tab-disabled"><a href="%s?telemt_tab=Diagnostics">Diagnostics</a></li>
+</ul>
+]], dsp.build_url("admin", "services", "telemt"),
+    dsp.build_url("admin", "services", "telemt"),
+    dsp.build_url("admin", "services", "telemt"),
+    dsp.build_url("admin", "services", "telemt"),
+    dsp.build_url("admin", "services", "telemt"),
+    dsp.build_url("admin", "services", "telemt"))
+
+-- -----------------------------------------------------------------------------
+-- Read-only runtime summary
+-- -----------------------------------------------------------------------------
+status = m:section(SimpleSection)
+status.title = _("WEB status")
+status.description = _("Read-only state from the core helper. Save & Apply configuration changes before relying on this status.")
+
+st = status:option(DummyValue, "_status")
+st.rawhtml = true
+function st.cfgvalue()
+    local out = helper_output("/usr/libexec/telemt-web-check", "")
+    return "<pre style='white-space:pre-wrap;margin:0'>" .. html_escape(out) .. "</pre>"
+end
+
+-- -----------------------------------------------------------------------------
+-- Global WEB settings
+-- -----------------------------------------------------------------------------
+web = m:section(NamedSection, "web", "web", _("WEB Proxy"))
+web.addremove = false
+web.anonymous = true
+web:tab("settings", _("Settings"))
+web:tab("frontend", _("Frontend"))
+
+enabled = web:taboption("settings", Flag, "enabled", _("Enable WEB Proxy"))
+enabled.rmempty = false
+enabled.default = enabled.disabled
+enabled.description = _("WEB remains disabled on upgrade until explicitly enabled.")
+
+carrier_policy = web:taboption("settings", ListValue, "carrier_policy", _("Carrier policy"))
+carrier_policy:value("fixed", _("Fixed"))
+carrier_policy:value("auto", _("Auto negotiation"))
+carrier_policy.default = "fixed"
+carrier_policy.rmempty = false
+carrier_policy.description = _("Fixed uses one carrier. Auto tries the ordered candidate list and keeps the Carrier field below as the final fallback.")
+
+carrier = web:taboption("settings", ListValue, "carrier", _("Carrier / fallback"))
+carrier:value("https", "HTTPS")
+carrier:value("https-lanes", "HTTPS lanes")
+carrier:value("websocket", "WebSocket")
+carrier:value("websocket-lanes", "WebSocket lanes")
+carrier.default = "https"
+carrier.rmempty = false
+carrier.description = _("In Fixed mode this is the only carrier. In Auto mode this is the final fallback and is not required in the candidate list.")
+
+carrier_candidates = web:taboption("settings", DynamicList, "carrier_candidate", _("Auto carrier candidates"))
+carrier_candidates:depends("carrier_policy", "auto")
+carrier_candidates:value("websocket-lanes", "WebSocket lanes")
+carrier_candidates:value("websocket", "WebSocket")
+carrier_candidates:value("https-lanes", "HTTPS lanes")
+carrier_candidates:value("https", "HTTPS")
+carrier_candidates.default = { "websocket-lanes", "websocket", "https-lanes" }
+carrier_candidates.rmempty = false
+carrier_candidates.description = _("Ordered negotiation list. Use only the four exact Telemt 3.5.6 carrier values; duplicates are rejected by the core generator.")
+function carrier_candidates.validate(self, value, section)
+    if type(value) == "table" then
+        local seen = {}
+        if #value == 0 then return nil, _("Auto mode requires at least one carrier candidate") end
+        for _, item in ipairs(value) do
+            item = trim(item)
+            if not valid_carrier(item) then return nil, _("Invalid WEB carrier candidate") end
+            if seen[item] then return nil, _("Duplicate WEB carrier candidate") end
+            seen[item] = true
+        end
+        return value
+    end
+    value = trim(value)
+    if valid_carrier(value) then return value end
+    return nil, _("Invalid WEB carrier candidate")
+end
+
+carrier_learning = web:taboption("settings", Flag, "carrier_learning", _("Carrier learning"))
+carrier_learning:depends("carrier_policy", "auto")
+carrier_learning.default = carrier_learning.enabled
+carrier_learning.rmempty = false
+carrier_learning.description = _("Enable Telemt's bounded process-local carrier learning for Auto mode.")
+
+carrier_aggr = web:taboption("settings", ListValue, "carrier_negotiation_aggressiveness", _("Negotiation aggressiveness"))
+carrier_aggr:depends("carrier_policy", "auto")
+carrier_aggr:value("conservative", _("Conservative"))
+carrier_aggr:value("balanced", _("Balanced"))
+carrier_aggr:value("aggressive", _("Aggressive"))
+carrier_aggr.default = "conservative"
+carrier_aggr.rmempty = false
+carrier_aggr.description = _("Conservative is the default. Balanced and Aggressive are manual advanced choices.")
+
+-- [web.debug] (Telemt >= 3.5.8). Off by default; the core generator skips it
+-- (with a syslog note) when the installed binary is older than 3.5.8.
+debug_enabled = web:taboption("settings", Flag, "debug_enabled", _("WEB diagnostics"))
+debug_enabled.default = debug_enabled.disabled
+debug_enabled.rmempty = false
+debug_enabled.description = _("Enable [web.debug]. Requires Telemt 3.5.8 or newer.")
+
+debug_sideband = web:taboption("settings", Flag, "debug_sideband", _("Diagnostic sideband"))
+debug_sideband:depends("debug_enabled", "1")
+debug_sideband.default = debug_sideband.disabled
+debug_sideband.rmempty = false
+debug_sideband.description = _("Let the WEB Bridge send a bounded set of lifecycle events over an authenticated same-origin HTTPS sideband. It does not consume the bootstrap token and does not affect carrier negotiation or framing. Off by default.")
+
+debug_capture = web:taboption("settings", Flag, "debug_capture_lifecycle", _("Capture lifecycle events"))
+debug_capture:depends("debug_enabled", "1")
+debug_capture.default = debug_capture.disabled
+debug_capture.rmempty = false
+debug_capture.description = _("Record WEB Bridge lifecycle events for the sideband. Changing WEB diagnostics restarts Telemt.")
+
+frontend = web:taboption("frontend", ListValue, "tls_terminator", _("TLS frontend"))
+frontend:value("external", _("External / already configured"))
+frontend:value("haproxy", _("HAProxy"))
+frontend:value("nginx", _("NGINX"))
+frontend.default = "external"
+frontend.rmempty = false
+frontend.description = _("Telemt WEB listens for private plain HTTP. Public TLS must terminate before it reaches Telemt.")
+
+hm = web:taboption("frontend", Flag, "haproxy_managed", _("Manage HAProxy configuration"))
+hm:depends("tls_terminator", "haproxy")
+hm.default = hm.disabled
+hm.rmempty = false
+hm.description = _("Opt-in takeover of /etc/haproxy.cfg. The core helper saves the original once and validates generated configuration with haproxy -c before replacing it.")
+
+hb = web:taboption("frontend", Value, "haproxy_bind", _("HAProxy public bind"))
+hb:depends({ tls_terminator = "haproxy", haproxy_managed = "1" })
+hb.default = ":443"
+hb.placeholder = ":443"
+hb.rmempty = false
+hb.description = _("TCP/443 only, for example :443, 0.0.0.0:443 or [::]:443. Existing uhttpd/NGINX listeners must be resolved first.")
+function hb.validate(self, value, section)
+    value = trim(value)
+    if value == ":443" or value == "0.0.0.0:443" or value:match("^%d+%.%d+%.%d+%.%d+:443$") or value:match("^%[[0-9A-Fa-f:]+%]:443$") then
+        return value
+    end
+    return nil, _("HAProxy bind must be an address on TCP/443")
+end
+
+hc = web:taboption("frontend", Value, "haproxy_cert", _("Certificate / fullchain PEM"))
+hc:depends({ tls_terminator = "haproxy", haproxy_managed = "1" })
+hc.placeholder = "/etc/acme/example/fullchain.cer"
+hc.rmempty = true
+hc.description = _("If the PEM already contains the private key, leave the key field empty.")
+
+hk = web:taboption("frontend", Value, "haproxy_key", _("Private key"))
+hk:depends({ tls_terminator = "haproxy", haproxy_managed = "1" })
+hk.placeholder = "/etc/acme/example/example.key"
+hk.rmempty = true
+
+hfw = web:taboption("frontend", Flag, "haproxy_auto_fw", _("Open WAN TCP/443 after successful apply"))
+hfw:depends({ tls_terminator = "haproxy", haproxy_managed = "1" })
+hfw.default = hfw.enabled
+hfw.rmempty = false
+hfw.description = _("The private Telemt backend port is never opened by this option.")
+
+nm = web:taboption("frontend", Flag, "nginx_managed", _("Manage NGINX fragment"))
+nm:depends("tls_terminator", "nginx")
+nm.default = nm.disabled
+nm.rmempty = false
+nm.description = _("Opt-in ownership of /etc/nginx/conf.d/telemt-web.conf only. The core helper never overwrites /etc/config/nginx or the OpenWrt-generated main NGINX configuration.")
+
+nb = web:taboption("frontend", Value, "nginx_bind", _("NGINX public bind"))
+nb:depends({ tls_terminator = "nginx", nginx_managed = "1" })
+nb.default = "443"
+nb.placeholder = "443"
+nb.rmempty = false
+nb.description = _("TCP/443 only: 443, 0.0.0.0:443 or a concrete IPv4 address on :443. Existing uhttpd/HAProxy listeners must be resolved first.")
+function nb.validate(self, value, section)
+    value = trim(value)
+    if value == "443" or value == "0.0.0.0:443" or value:match("^%d+%.%d+%.%d+%.%d+:443$") then
+        return value
+    end
+    return nil, _("NGINX bind must be 443 or an IPv4 address on TCP/443")
+end
+
+n6 = web:taboption("frontend", Flag, "nginx_ipv6", _("Also listen on [::]:443"))
+n6:depends({ tls_terminator = "nginx", nginx_managed = "1" })
+n6.default = n6.disabled
+n6.rmempty = false
+
+nc = web:taboption("frontend", Value, "nginx_cert", _("NGINX certificate / fullchain PEM"))
+nc:depends({ tls_terminator = "nginx", nginx_managed = "1" })
+nc.placeholder = "/etc/acme/example/fullchain.cer"
+nc.rmempty = true
+
+nk = web:taboption("frontend", Value, "nginx_key", _("NGINX private key"))
+nk:depends({ tls_terminator = "nginx", nginx_managed = "1" })
+nk.placeholder = "/etc/acme/example/example.key"
+nk.rmempty = true
+
+nfw = web:taboption("frontend", Flag, "nginx_auto_fw", _("Open WAN TCP/443 after successful apply"))
+nfw:depends({ tls_terminator = "nginx", nginx_managed = "1" })
+nfw.default = nfw.enabled
+nfw.rmempty = false
+nfw.description = _("The private Telemt backend port is never opened by this option.")
+
+-- -----------------------------------------------------------------------------
+-- Private WEB listener
+-- -----------------------------------------------------------------------------
+listener = m:section(NamedSection, "web_listener", "web_listener", _("Private WEB backend"))
+listener.addremove = false
+listener.anonymous = true
+
+le = listener:option(Flag, "enabled", _("Enable backend listener"))
+le.default = le.enabled
+le.rmempty = false
+
+lip = listener:option(Value, "ip", _("Listen address"))
+lip.default = "127.0.0.1"
+lip.placeholder = "127.0.0.1"
+lip.rmempty = false
+lip.description = _("Managed HAProxy and NGINX require 127.0.0.1. External frontends may use another private address when required.")
+
+lp = listener:option(Value, "port", _("Listen port"))
+lp.datatype = "port"
+lp.default = "27453"
+lp.placeholder = "27453"
+lp.rmempty = false
+lp.description = _("Default 27453 avoids common local proxy ports such as 18080.")
+
+xff = listener:option(ListValue, "client_ip_source", _("Client IP source"))
+xff:value("x_forwarded_for", "X-Forwarded-For")
+xff.default = "x_forwarded_for"
+xff.rmempty = false
+
+trusted = listener:option(DynamicList, "trusted_proxy_cidr", _("Trusted frontend CIDRs"))
+trusted.default = "127.0.0.1/32"
+trusted.placeholder = "127.0.0.1/32"
+trusted.rmempty = false
+trusted.description = _("Only immediate TLS frontend peers belong here. /0 is forbidden by the core generator.")
+
+-- -----------------------------------------------------------------------------
+-- VHosts
+-- -----------------------------------------------------------------------------
+vh = m:section(TypedSection, "web_vhost", _("WEB virtual hosts"),
+    _("Each enabled public hostname maps to one Telemt WEB vhost. public_addr is the concrete public IP on :443; the decoy is currently an HTTP IP-literal origin."))
+vh.template = "cbi/tblsection"
+vh.anonymous = true
+vh.addremove = true
+vh.sortable = true
+
+vhe = vh:option(Flag, "enabled", _("On"))
+vhe.default = vhe.enabled
+vhe.rmempty = false
+
+vhn = vh:option(Value, "name", _("Name"))
+vhn.rmempty = false
+vhn.placeholder = "main"
+function vhn.validate(self, value, section)
+    value = trim(value)
+    if valid_vhost_name(value) then return value end
+    return nil, _("Use only A-Z, a-z, 0-9, underscore and hyphen")
+end
+
+vhh = vh:option(Value, "host", _("Public host"))
+vhh.rmempty = false
+vhh.placeholder = "proxy.example.com"
+function vhh.validate(self, value, section)
+    value = trim(value):lower()
+    if valid_fqdn(value) then return value end
+    return nil, _("Enter a valid FQDN")
+end
+
+vhp = vh:option(Value, "public_addr", _("Public address"))
+vhp.rmempty = false
+vhp.placeholder = "203.0.113.10:443"
+function vhp.validate(self, value, section)
+    value = trim(value)
+    if valid_public_addr(value) then return value end
+    return nil, _("Use a concrete IPv4 or [IPv6] address on :443")
+end
+
+vhd = vh:option(Value, "decoy_upstream", _("HTTP decoy"))
+vhd.rmempty = false
+vhd.placeholder = "http://127.0.0.1:27454"
+vhd.description = _("Current LAB supports http_upstream only: http://IP[:port], without path/query/credentials.")
+function vhd.validate(self, value, section)
+    value = trim(value)
+    if valid_decoy(value) then return value end
+    return nil, _("Use http://IP[:port] without path or query")
+end
+
+-- decoy_mode is currently fixed by the core implementation; keep it in UCI but
+-- do not make the user choose a value which cannot work yet.
+function vh.create(self, section)
+    local sid = TypedSection.create(self, section)
+    if sid then uci:set("telemt", sid, "decoy_mode", "http_upstream") end
+    return sid
+end
+
+-- -----------------------------------------------------------------------------
+-- Profiles -> shared config user
+-- -----------------------------------------------------------------------------
+pr = m:section(TypedSection, "web_profile", _("WEB profiles"),
+    _("A WEB profile binds a vhost to an existing Telemt user. Secrets, quota, expiration and enabled state remain exclusively in the shared Users database."))
+pr.template = "cbi/tblsection"
+pr.anonymous = true
+pr.addremove = true
+pr.sortable = true
+
+pre = pr:option(Flag, "enabled", _("On"))
+pre.default = pre.enabled
+pre.rmempty = false
+
+prv = pr:option(Value, "vhost", _("VHost"))
+prv.rmempty = false
+prv.placeholder = "main"
+for _, name in ipairs(vhosts) do prv:value(name, name) end
+function prv.validate(self, value, section)
+    value = trim(value)
+    if valid_vhost_name(value) then return value end
+    return nil, _("Enter the Name of an enabled WEB vhost")
+end
+
+pru = pr:option(ListValue, "user", _("Shared user"))
+pru.rmempty = false
+if #users == 0 then
+    pru:value("", _("No Telemt users configured"))
+else
+    for _, item in ipairs(users) do
+        local label = item.name
+        if not item.enabled then label = label .. " (disabled)" end
+        pru:value(item.name, label)
+    end
+end
+pru.description = _("The secret is read from config user; it is never copied into the WEB profile.")
+
+prm = pr:option(ListValue, "secret_mode", _("WEB secret mode"))
+prm:value("dd", "DD")
+prm:value("plain", _("Plain"))
+prm.default = "dd"
+prm.rmempty = false
+
+pms = pr:option(Value, "max_sessions", _("Max sessions"))
+pms.datatype = "uinteger"
+pms.rmempty = true
+pms.placeholder = _("core default")
+
+pmst = pr:option(Value, "max_streams", _("Max streams"))
+pmst.datatype = "uinteger"
+pmst.rmempty = true
+pmst.placeholder = _("core default")
+
+pmss = pr:option(Value, "max_streams_per_session", _("Streams/session"))
+pmss.datatype = "uinteger"
+pmss.rmempty = true
+pmss.placeholder = _("core default")
+
+-- -----------------------------------------------------------------------------
+-- Dynamically derived links and QR codes
+-- -----------------------------------------------------------------------------
+links = m:section(SimpleSection)
+links.title = _("WEB connection links")
+links.description = _("Links are generated from the selected shared user secret and enabled WEB vhost. They are never stored separately.")
+
+lv = links:option(DummyValue, "_web_links")
+lv.rawhtml = true
+function lv.cfgvalue()
+    if #web_links == 0 then
+        return "<em>" .. html_escape(_("No valid enabled WEB profiles are configured yet.")) .. "</em>"
+    end
+
+    local rows = {}
+    for _, item in ipairs(web_links) do
+        local qr = web_qr_url .. "?profile=" .. item.section
+        rows[#rows + 1] = string.format([[
+<tr>
+  <td>%s</td>
+  <td>%s</td>
+  <td>%s</td>
+  <td>%s</td>
+  <td style="max-width:520px;word-break:break-all"><a href="%s"><code>%s</code></a></td>
+  <td><details><summary>QR</summary><img src="%s" alt="WEB Proxy QR" style="width:160px;height:160px;image-rendering:auto;margin-top:6px"></details></td>
+</tr>]],
+            html_escape(item.host),
+            html_escape(item.user),
+            html_escape(item.mode),
+            item.active and "active" or "user disabled",
+            html_escape(item.link),
+            html_escape(item.link),
+            html_escape(qr))
+    end
+
+    return [[<div style="overflow-x:auto"><table class="table cbi-section-table">
+<thead><tr><th>Host</th><th>User</th><th>Mode</th><th>State</th><th>tg://webproxy</th><th>QR</th></tr></thead>
+<tbody>]] .. table.concat(rows, "\n") .. [[</tbody></table></div>]]
+end
+
+-- -----------------------------------------------------------------------------
+-- Managed frontend helper state and explicit actions.
+-- These are XHR requests to a controller endpoint, not CBI submit buttons, so
+-- they only use committed UCI state and cannot race unsaved form values.
+-- -----------------------------------------------------------------------------
+frontst = m:section(SimpleSection)
+frontst.title = _("Managed TLS frontend helper")
+frontst.description = _("Save & Apply the WEB configuration first. Check, Apply and Restore operate only on the frontend already committed to /etc/config/telemt. External mode has no managed action.")
+
+fsv = frontst:option(DummyValue, "_frontend_status")
+fsv.rawhtml = true
+function fsv.cfgvalue()
+    if not frontend_helper then
+        return "<em>" .. html_escape(_("Saved frontend is External; Telemt does not manage its TLS configuration.")) .. "</em>"
+    end
+    local out = helper_output(frontend_helper, "status")
+    return "<pre style='white-space:pre-wrap;margin:0'>" .. html_escape(out) .. "</pre>"
+end
+
+fsa = frontst:option(DummyValue, "_frontend_actions")
+fsa.rawhtml = true
+function fsa.cfgvalue()
+    if not frontend_helper then
+        return "<em>" .. html_escape(_("No managed frontend selected.")) .. "</em>"
+    end
+
+    local url = js_quote(frontend_action_url)
+    local label_html = html_escape(frontend_label)
+    local label_js = js_quote(frontend_label)
+    return string.format([[
+<div style="display:flex;gap:8px;flex-wrap:wrap;margin:4px 0 8px 0">
+  <button type="button" class="cbi-button cbi-button-action" onclick="return telemtWebFrontendAction('check', false)">Check</button>
+  <button type="button" class="cbi-button cbi-button-apply" onclick="return telemtWebFrontendAction('apply', true)">Apply %s</button>
+  <button type="button" class="cbi-button cbi-button-reset" onclick="return telemtWebFrontendAction('restore', true)">Restore previous %s</button>
+</div>
+<pre id="telemt-web-frontend-result" style="white-space:pre-wrap;display:none;margin:6px 0 0 0"></pre>
+<script type="text/javascript">
+function telemtWebFrontendAction(act, destructive) {
+    if (destructive) {
+        var msg = (act === 'apply')
+            ? 'Apply the Telemt-managed %s configuration using SAVED UCI settings?'
+            : 'Restore the %s configuration saved before Telemt took control?';
+        if (!window.confirm(msg)) return false;
+    }
+
+    var out = document.getElementById('telemt-web-frontend-result');
+    out.style.display = 'block';
+    out.textContent = 'Running ' + act + '...';
+
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', '%s', true);
+    xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded; charset=UTF-8');
+    xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+    xhr.onreadystatechange = function() {
+        if (xhr.readyState !== 4) return;
+        out.textContent = (xhr.status >= 200 && xhr.status < 300 ? '' : 'ERROR HTTP ' + xhr.status + '\n') + (xhr.responseText || 'No output');
+    };
+    xhr.send('action=' + encodeURIComponent(act));
+    return false;
+}
+</script>
+]], label_html, label_html, label_js, label_js, url)
+end
+
+return m

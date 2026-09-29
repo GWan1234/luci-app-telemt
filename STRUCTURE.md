@@ -25,13 +25,14 @@
  ┃   ┗ 📂 bin/
  ┃     ┗ 📜 <b>telemt_bot.sh</b>            <span style="color: #6a737d;">// Telegram Bot execution script (ash/curl)</span>
  ┣ 📜 Makefile                       <span style="color: #6a737d;">// OpenWrt build recipe for .ipk (legacy/stable)</span>
- ┗ 📜 nfpm.yaml                      <span style="color: #6a737d;">// Multi-packager config (generates .ipk and .apk via GitHub Actions)</span>
+ ┣ 📜 owfeed.yml                      <span style="color: #6a737d;">// owfeed package definition (IPK for 24.10, APKv3 for 25.12) — see RELEASING.md</span>
+ ┗ 📜 tools/stage.sh                 <span style="color: #6a737d;">// stages root/ + scripts/ into dist/ for owfeed</span>
 </pre>
 
 <hr>
 
 <h2>📦 2. Installation Lifecycle (.ipk / .apk)</h2>
-<p>Because of the <b>Micro-Service Architecture</b>, the core binary (<code>telemt_wrt</code>) is installed separately from the Web UI (<code>luci-app-telemt</code>). When the UI package is installed via <code>opkg</code> or <code>apk</code>, the following sequence occurs:</p>
+<p>Because of the <b>Micro-Service Architecture</b>, the core binary (<code>telemt_owrt</code>) is installed separately from the Web UI (<code>luci-app-telemt</code>). When the UI package is installed via <code>opkg</code> or <code>apk</code>, the following sequence occurs:</p>
 
 <blockquote>
   <b>1. Extraction ➔ 2. Core Dependency Check ➔ 3. Post-Install Hooks ➔ 4. Service Registration</b>

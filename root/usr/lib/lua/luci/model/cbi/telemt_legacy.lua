@@ -1,12 +1,12 @@
 -- -- ==============================================================================
 -- Telemt CBI Model (Configuration Binding Interface)
--- Version: 3.4.0
+-- Version: 3.5.8-r1 WEB alpha
 -- Changes from 3.3.31:
 --   - metrics_listen_addr / api_listen_addr (external metrics/API bind, default loopback)
 --   - client_mss (3.4.18) global TCP MSS clamp in [server]
 --   - mask_dynamic (3.4.18) surfaced as Flag in [censorship]
 --   - Argon/AJAX-theme bootstrap fix (status panel no longer stuck on PENDING)
---   - All version strings bumped to 3.4.0; requires telemt v3.4.15+
+--   - WEB alpha UI aligned with Telemt 3.5.8 (optional [web.debug] sideband); package revision r1
 -- Earlier: Version: 3.3.29
 -- Changes from 3.3.21:
 --   - Dark theme fix: replaced hardcoded color:#555/#888 with inherit/opacity
@@ -528,15 +528,18 @@ if bin_path ~= "" then
 
     if bin_ver == "unknown" then
         comp_badge = "<span style='color:#d35400;font-weight:bold;'>[ Unknown Version ]</span>"
-    elseif cmp_ver(bin_ver, "3.4.15") >= 0 then
+    elseif cmp_ver(bin_ver, "3.5.8") >= 0 then
         comp_badge = "<span style='color:#00a000;font-weight:bold;'>[ Compatible ]</span>"
+    elseif cmp_ver(bin_ver, "3.4.15") >= 0 then
+        -- Classic/DD/FakeTLS keep working; WEB needs core 3.5.6+, WEB sideband 3.5.8+.
+        comp_badge = "<span style='color:#d35400;font-weight:bold;'>[ Limited: update core for WEB ]</span>"
     else
         comp_badge = "<span style='color:#d9534f;font-weight:bold;'>[ Unsupported Version ]</span>"
     end
 end
 
 m = Map("telemt", "Telegram Proxy (MTProto)",
-    [[Multi-user proxy server based on <a href="https://github.com/telemt/telemt" target="_blank" style="text-decoration:none; color:inherit; font-weight:bold; border-bottom: 1px dotted currentColor;">telemt</a>.<br><b>LuCI App Version: <a href="https://github.com/Medvedolog/luci-app-telemt" target="_blank" style="text-decoration:none; color:inherit; border-bottom: 1px dotted currentColor;">3.4.0</a></b> | <span style='color:#d35400; font-weight:bold;'>Requires telemt v3.4.15+</span>]])
+    [[Multi-user proxy server based on <a href="https://github.com/telemt/telemt" target="_blank" style="text-decoration:none; color:inherit; font-weight:bold; border-bottom: 1px dotted currentColor;">telemt</a>.<br><b>LuCI App Version: <a href="https://github.com/Medvedolog/luci-app-telemt" target="_blank" style="text-decoration:none; color:inherit; border-bottom: 1px dotted currentColor;">3.5.8-r1 WEB alpha</a></b> | <span style='color:#d35400; font-weight:bold;'>WEB requires telemt v3.5.8+</span>]])
 m.on_commit = function(self)
     sys.call(
         "logger -t telemt 'WebUI: Config saved. Dumping stats before procd reload...'; /etc/init.d/telemt run_save_stats 2>/dev/null")
@@ -546,11 +549,20 @@ s = m:section(NamedSection, "general", "telemt")
 s.anonymous = true
 
 s:tab("general", "General Settings")
+s:tab("web_proxy", "WEB Proxy")
 s:tab("advanced", "Advanced Tuning")
 s:tab("upstreams", "Upstreams")
 s:tab("users", "Users")
 s:tab("bot", "Telegram Bot")
 s:tab("log", "Diagnostics")
+
+-- === TAB: WEB PROXY ROUTE ===
+local web_tab_route = s:taboption("web_proxy", DummyValue, "_web_proxy_route", "")
+web_tab_route.rawhtml = true
+web_tab_route.default = string.format(
+    '<div style="padding:12px 0;"><a class="cbi-button cbi-button-action" href="%s">Open WEB Proxy</a></div>',
+    dsp.build_url("admin", "services", "telemt", "web")
+)
 
 -- === TAB: GENERAL ===
 s:taboption("general", Flag, "enabled", "Enable Service")
@@ -760,6 +772,7 @@ usc.placeholder = "premium,me"; function usc.validate(self, v)
 end
 
 -- === TAB: ADVANCED ===
+
 local hnet = s:taboption("advanced", DummyValue, "_head_net"); hnet.rawhtml = true; hnet.default =
 "<h3>Network Listeners</h3>"
 s:taboption("advanced", Flag, "listen_ipv4", "Enable IPv4 Listener" .. tip("Listen for incoming IPv4 connections on 0.0.0.0")).default =
@@ -1192,6 +1205,43 @@ local lnk = s2:option(DummyValue, "_link", "Ready-to-use link" .. tip("Click the
 end
 
 m.description = [[
+
+<script type="text/javascript">
+(function(){
+    function tabText(a) {
+        return (a.textContent || '').replace(/\s+/g, ' ').trim();
+    }
+
+    function bindTelemtTabs() {
+        var links = document.querySelectorAll('.cbi-tabmenu a');
+        for (var i = 0; i < links.length; i++) {
+            if (tabText(links[i]) === 'WEB Proxy' && !links[i].dataset.telemtWebBound) {
+                links[i].dataset.telemtWebBound = '1';
+                links[i].addEventListener('click', function(ev) {
+                    ev.preventDefault();
+                    window.location.href = window.location.pathname.replace(/\/$/, '') + '/web';
+                });
+            }
+        }
+
+        var m = window.location.search.match(/[?&]telemt_tab=([^&]+)/);
+        if (!m) return;
+        var wanted = decodeURIComponent(m[1]).replace(/\+/g, ' ');
+        for (var j = 0; j < links.length; j++) {
+            if (tabText(links[j]) === wanted) {
+                try { links[j].click(); } catch(e) {}
+                return;
+            }
+        }
+    }
+
+    if (document.readyState === 'loading')
+        document.addEventListener('DOMContentLoaded', function(){ setTimeout(bindTelemtTabs, 100); });
+    else
+        setTimeout(bindTelemtTabs, 100);
+})();
+</script>
+
 <style>
 .cbi-value-helpicon, img[src*="help.gif"], img[src*="help.png"], .cbi-tooltip-container, .cbi-tooltip { display: none !important; }
 .cbi-value-description::before, .cbi-value-description img { display: none !important; content: none !important; margin: 0 !important; padding: 0 !important; width: 0 !important; height: 0 !important; }
