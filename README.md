@@ -109,6 +109,17 @@ apk add --allow-untrusted luci-app-telemt-3.5.8-r1.apk
     <th width="85%">Изменения / Highlights</th>
   </tr>
   <tr>
+    <td valign="top"><b>3.5.8</b></td>
+    <td valign="top">
+      <b>WEB Proxy, диагностика <code>[web.debug]</code>, сборка через owfeed / WEB Proxy, <code>[web.debug]</code> diagnostics, owfeed packaging</b>
+      <ul>
+        <li><b>Requires telemt 3.5.8+.</b> Требуется ядро 3.5.8+: для 3.4.15–3.5.7 бейдж «Limited» (Classic/DD/FakeTLS работают, WEB — нет).</li>
+        <li><b>WEB Proxy:</b> диагностика WEB Bridge — «WEB diagnostics», «Diagnostic sideband», «Capture lifecycle events», всё выключено по умолчанию. / Opt-in WEB Bridge diagnostics, all off by default.</li>
+        <li><b>Packaging:</b> IPK (24.10) и APKv3 (25.12) через owfeed, подписанный релиз, nFPM удалён. / IPK (24.10) and APKv3 (25.12) built with owfeed, signed release, nFPM removed. См. / See <code>RELEASING.md</code>, <code>CHANGELOG.md</code>.</li>
+      </ul>
+    </td>
+  </tr>
+  <tr>
     <td valign="top"><b>3.4.0</b><br><small>Release Candidate</small></td>
     <td valign="top">
       <b>Внешние метрики/API, client_mss, динамическая SNI-маска, честная диагностика связи и совместимость с AJAX-темами (кроме Argon, там ложно-отрицательный статус процесса telemt)</b><br>
